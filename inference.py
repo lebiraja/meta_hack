@@ -142,6 +142,16 @@ def call_llm(messages: list[dict]) -> tuple[str, str]:
     ) from last_exc
 
 
+def _safe_action_log(action: dict) -> str:
+    """Sanitize action for log output — strip newlines, truncate message."""
+    safe = {"action_type": action.get("action_type", "unknown")}
+    msg = action.get("message") or action.get("reason") or ""
+    msg = msg.replace("\n", " ").replace("\r", "")[:120]
+    if msg:
+        safe["msg_preview"] = msg
+    return json.dumps(safe)
+
+
 def build_prompt(obs: dict) -> str:
     history_text = "\n".join(
         f"{m['role'].upper()}: {m['content']}"
@@ -217,7 +227,7 @@ def run_task(task_name: str) -> None:
         except Exception as exc:
             last_error = str(exc)
             print(
-                f"[STEP] step={step + 1} action={json.dumps(action)} "
+                f"[STEP] step={step + 1} action={_safe_action_log(action)} "
                 f"reward=0.00 done=false error={last_error}"
             )
             break
@@ -234,7 +244,7 @@ def run_task(task_name: str) -> None:
         score = result.get("final_score", reward_val) if done else reward_val
 
         print(
-            f"[STEP] step={step} action={json.dumps(action)} "
+            f"[STEP] step={step} action={_safe_action_log(action)} "
             f"reward={reward_val:.2f} done={'true' if done else 'false'} "
             f"error={'null' if not error_out else error_out}"
         )

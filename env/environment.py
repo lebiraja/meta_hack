@@ -173,13 +173,17 @@ class CustomerSupportEnv:
     def _build_observation(self) -> Observation:
         assert self._ticket is not None
         unresolved = self._compute_unresolved_issues()
+        # Fix 5: Return only the last 20 messages in the observation payload
+        # to prevent unbounded response sizes. Full history is kept internally
+        # for accurate reward and grading computation.
+        history_window = self._history[-20:]
         return Observation(
             session_id=self.session_id,
             ticket_id=self._ticket["id"],
             category=self._ticket["category"],
             priority=self._ticket["priority"],
             subject=self._ticket["subject"],
-            conversation_history=list(self._history),
+            conversation_history=history_window,
             step=self._step,
             max_steps=self._max_steps,
             customer_sentiment=round(self._sentiment, 3),

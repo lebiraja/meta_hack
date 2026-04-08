@@ -12,8 +12,8 @@ class ActionType(str, Enum):
 
 class Action(BaseModel):
     action_type: ActionType
-    message: Optional[str] = None
-    reason: Optional[str] = None
+    message: Optional[str] = Field(default=None, max_length=2000)
+    reason: Optional[str] = Field(default=None, max_length=500)
 
     model_config = {"use_enum_values": True}
 

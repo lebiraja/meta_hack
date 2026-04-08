@@ -12,7 +12,7 @@ tags:
   - nlp
   - rl-environment
   - pytorch
-short_description: OpenEnv RL environment for AI customer support agent training
+short_description: OpenEnv RL env for customer support agents
 ---
 
 # Customer Support RL Environment

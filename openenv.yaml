@@ -1,0 +1,59 @@
+name: customer-support-env
+version: "1.0.0"
+description: >
+  Real-world OpenEnv RL environment for AI customer support agent training.
+  An agent resolves support tickets across three difficulty levels with
+  partial reward signals measuring resolution quality, tone, efficiency,
+  and accuracy. Designed to train agents that genuinely help customers —
+  not keyword-stuff responses.
+author: Team X-Force
+tasks:
+  - name: easy
+    description: Single-turn FAQ resolution (billing — refunds, double charges, invoice errors)
+    max_steps: 5
+  - name: medium
+    description: Multi-turn complaint handling (technical and account issues requiring info gathering)
+    max_steps: 8
+  - name: hard
+    description: SLA-critical escalation triage (enterprise outages, security incidents — agent must escalate within 2 steps)
+    max_steps: 10
+action_space:
+  type: ActionType
+  values:
+    - respond
+    - escalate
+    - close
+    - request_info
+observation_space:
+  session_id: string
+  ticket_id: string
+  category: string
+  priority: "low | medium | high | critical"
+  subject: string
+  conversation_history: "list[{role: customer|agent, content: string}]"
+  customer_sentiment: "float in [-1.0, 1.0]"
+  unresolved_issues: "list[string]"
+  step: int
+  max_steps: int
+  is_done: bool
+  task: string
+reward_range: [0.0, 1.0]
+reward_signals:
+  resolution: 0.40
+  tone: 0.20
+  efficiency: 0.20
+  accuracy: 0.20
+tags:
+  - customer-support
+  - nlp
+  - multi-turn
+  - real-world
+  - rl-environment
+  - openenv
+  - pytorch
+  - meta-hackathon
+endpoints:
+  reset: "POST /reset?task={easy|medium|hard}"
+  step: "POST /step?session_id={id}"
+  state: "GET /state/{session_id}"
+  health: "GET /health"

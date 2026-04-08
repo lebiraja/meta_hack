@@ -1,0 +1,33 @@
+services:
+  env:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "7860:7860"
+    env_file:
+      - .env
+    environment:
+      - ENV_URL=http://localhost:7860
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  inference:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      - ENV_URL=http://env:7860
+    depends_on:
+      env:
+        condition: service_healthy
+    command: ["python", "inference.py"]
+    profiles:
+      - inference

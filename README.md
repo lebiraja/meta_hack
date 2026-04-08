@@ -1,3 +1,20 @@
+---
+title: Customer Support RL Environment
+emoji: 🎧
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+tags:
+  - reinforcement-learning
+  - customer-support
+  - openenv
+  - nlp
+  - rl-environment
+  - pytorch
+short_description: OpenEnv RL environment for AI customer support agent training
+---
+
 # Customer Support RL Environment
 
 **Team X-Force | Meta × PyTorch × Scaler OpenEnv Hackathon**

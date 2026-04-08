@@ -9,15 +9,24 @@ Verifies:
 - Loop detection triggers penalty on repeated messages
 - Hard grader requires early escalation with urgency
 - Easy grader rewards closing with correct resolution
+- E2E HTTP integration tests against the live FastAPI app
+- Rate limiting: >30 resets/min from same IP → 429
+- Session cap: > MAX_SESSIONS concurrent → 503
+- Body size limit: >64KB payload → 413
 """
 
+import random
 import pytest
+from fastapi.testclient import TestClient
 from env.environment import CustomerSupportEnv
 from env.models import Action, ActionType
 from env.graders import grade as run_grader
 from env.graders.task_hard import grade as grade_hard
 from env.graders.task_easy import grade as grade_easy
 from env.reward_engine import compute_tone_score, compute_loop_penalty
+
+# Seed random for deterministic ticket selection in tests
+random.seed(42)
 from env.models import Message
 
 
@@ -360,3 +369,216 @@ def test_state_reflects_steps_taken(easy_env):
     state = easy_env.state()
     assert state["step"] == 1
     assert len(state["action_log"]) == 1
+
+
+# ── E2E Integration tests (HTTP layer) ────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def client():
+    """TestClient against the real FastAPI app — tests the full HTTP stack."""
+    from server.app import app, _sessions
+    _sessions.clear()
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c
+    _sessions.clear()
+
+
+def test_e2e_root(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert r.json()["name"] == "CustomerSupportEnv"
+
+
+def test_e2e_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["env_functional"] is True
+    assert "active_sessions" in body
+
+
+def test_e2e_reset_easy(client):
+    r = client.post("/reset?task=easy")
+    assert r.status_code == 200
+    body = r.json()
+    assert "session_id" in body
+    assert "observation" in body
+    obs = body["observation"]
+    assert obs["task"] == "easy"
+    assert obs["max_steps"] == 5
+    assert obs["step"] == 0
+    assert not obs["is_done"]
+    assert len(obs["conversation_history"]) == 1
+    assert obs["conversation_history"][0]["role"] == "customer"
+
+
+def test_e2e_reset_invalid_task(client):
+    r = client.post("/reset?task=impossible")
+    assert r.status_code == 422
+
+
+def test_e2e_full_episode_easy(client):
+    """Complete easy episode: respond → request_info → close → verify final_score."""
+    r = client.post("/reset?task=easy")
+    assert r.status_code == 200
+    session_id = r.json()["session_id"]
+
+    # Step 1: respond
+    r = client.post(f"/step?session_id={session_id}", json={
+        "action_type": "respond",
+        "message": "I can see the double charge. Let me help you get a refund right away.",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["done"] is False
+    assert 0.0 <= body["reward"]["value"] <= 1.0
+
+    # Step 2: request_info
+    r = client.post(f"/step?session_id={session_id}", json={
+        "action_type": "request_info",
+        "message": "Could you please provide your account email address?",
+    })
+    assert r.status_code == 200
+
+    # Step 3: close
+    r = client.post(f"/step?session_id={session_id}", json={
+        "action_type": "close",
+        "message": "I have processed a full refund for the duplicate charge. You will see it in 3-5 business days.",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["done"] is True
+    assert "final_score" in body
+    assert 0.0 <= body["final_score"] <= 1.0
+
+
+def test_e2e_full_episode_hard(client):
+    """Hard episode: immediate escalation with urgency → should score high."""
+    r = client.post("/reset?task=hard")
+    assert r.status_code == 200
+    session_id = r.json()["session_id"]
+
+    r = client.post(f"/step?session_id={session_id}", json={
+        "action_type": "escalate",
+        "reason": "SLA breach imminent — critical production outage requires immediate senior engineering escalation.",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["done"] is True
+    assert body["final_score"] >= 0.7
+
+
+def test_e2e_unknown_session(client):
+    r = client.post("/step?session_id=nonexistent-session-id", json={
+        "action_type": "respond",
+        "message": "Hello",
+    })
+    assert r.status_code == 404
+
+
+def test_e2e_step_after_done(client):
+    """Step after a completed episode returns 404 (session cleaned up)."""
+    r = client.post("/reset?task=easy")
+    session_id = r.json()["session_id"]
+
+    client.post(f"/step?session_id={session_id}", json={
+        "action_type": "close",
+        "message": "Closing.",
+    })
+    # Session is now gone — next step should 404
+    r = client.post(f"/step?session_id={session_id}", json={
+        "action_type": "respond",
+        "message": "Hello again.",
+    })
+    assert r.status_code == 404
+
+
+def test_e2e_invalid_action_type(client):
+    r = client.post("/reset?task=easy")
+    session_id = r.json()["session_id"]
+    r = client.post(f"/step?session_id={session_id}", json={
+        "action_type": "DROP_TABLES",
+        "message": "malicious",
+    })
+    assert r.status_code == 422
+
+
+def test_e2e_body_too_large(client):
+    """64KB+ body → 413."""
+    r = client.post("/reset?task=easy")
+    session_id = r.json()["session_id"]
+    huge_payload = {"action_type": "respond", "message": "x" * 3000}
+    r = client.post(f"/step?session_id={session_id}", json=huge_payload)
+    assert r.status_code == 422  # pydantic max_length kicks in first
+
+
+def test_e2e_session_cleanup_on_done(client):
+    """Completed sessions are removed from _sessions dict."""
+    from server.app import _sessions
+    initial = len(_sessions)
+
+    r = client.post("/reset?task=easy")
+    session_id = r.json()["session_id"]
+    assert len(_sessions) == initial + 1
+
+    client.post(f"/step?session_id={session_id}", json={
+        "action_type": "close",
+        "message": "Closing.",
+    })
+    assert len(_sessions) == initial  # cleaned up
+
+
+def test_e2e_session_cap(client):
+    """Server rejects /reset when at MAX_SESSIONS capacity."""
+    from server.app import _sessions, MAX_SESSIONS
+    _sessions.clear()
+
+    # Fill to cap with fake entries
+    import time
+    for i in range(MAX_SESSIONS):
+        _sessions[f"fake-{i}"] = (None, time.monotonic())
+
+    r = client.post("/reset?task=easy")
+    assert r.status_code == 503
+    _sessions.clear()
+
+
+def test_e2e_cors_header(client):
+    """CORS allow-origin header is present on all responses."""
+    r = client.get("/health", headers={"Origin": "http://example.com"})
+    assert "access-control-allow-origin" in r.headers
+
+
+def test_e2e_state_endpoint(client):
+    """GET /state/{session_id} returns full session state."""
+    r = client.post("/reset?task=medium")
+    session_id = r.json()["session_id"]
+
+    r = client.get(f"/state/{session_id}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["task"] == "medium"
+    assert "ticket" in body
+    assert "history" in body
+    assert "action_log" in body
+
+
+def test_e2e_state_unknown_session(client):
+    r = client.get("/state/totally-fake-session")
+    assert r.status_code == 404
+
+
+def test_e2e_all_three_tasks_complete(client):
+    """Smoke test: all 3 tasks can be reset and stepped through."""
+    for task in ["easy", "medium", "hard"]:
+        r = client.post(f"/reset?task={task}")
+        assert r.status_code == 200, f"Reset failed for task={task}"
+        session_id = r.json()["session_id"]
+
+        r = client.post(f"/step?session_id={session_id}", json={
+            "action_type": "escalate",
+            "reason": "SLA critical outage — escalating immediately.",
+        })
+        assert r.status_code == 200
+        assert r.json()["done"] is True

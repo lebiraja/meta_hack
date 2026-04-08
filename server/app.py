@@ -1,31 +1,51 @@
 """
 FastAPI server — CustomerSupportEnv.
 
-One server. Used by Docker deployment AND by inference.py (HTTP client).
-Session isolation via session_id — NO global mutable state per-request.
-
-Fixes applied:
-  - CORS middleware (Fix 4)
-  - Session TTL: abandoned sessions expire after SESSION_TTL_SECONDS (Fix 3)
-  - Real health check: verifies ticket store is functional (Fix 6)
+Production hardening applied:
+  - Rate limiting: 30 /reset calls per minute per IP (slowapi)
+  - Max session cap: 500 concurrent sessions hard limit
+  - Request body size limit: 64KB enforced at middleware level
+  - Session TTL: abandoned sessions swept after 30 minutes
+  - CORS: open for browser and HF Spaces clients
+  - Structured JSON logging via standard logging module
+  - Real health check: verifies ticket store is functional
 """
 
 from __future__ import annotations
 
+import logging
+import logging.config
 import time
 import uuid
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from env.environment import CustomerSupportEnv
 from env.graders import grade as run_grader
 from env.models import Action
 from env.ticket_store import ticket_store
 
-# Sessions older than this (seconds) are swept on the next request
-SESSION_TTL_SECONDS = 30 * 60  # 30 minutes
+# ── Logging ────────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "msg": %(message)s}',
+    datefmt="%Y-%m-%dT%H:%M:%SZ",
+)
+logger = logging.getLogger("customer_support_env")
+
+# ── Rate limiter ───────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+
+# ── Config ─────────────────────────────────────────────────────────────────────
+MAX_SESSIONS = 500          # hard cap on concurrent sessions
+SESSION_TTL_SECONDS = 1800  # 30 minutes
+MAX_BODY_BYTES = 64 * 1024  # 64KB per request
 
 app = FastAPI(
     title="CustomerSupportEnv",
@@ -33,7 +53,11 @@ app = FastAPI(
     description="OpenEnv-compliant RL environment for customer support agent training.",
 )
 
-# ── Fix 4: CORS ────────────────────────────────────────────────────────────────
+# ── Middleware ─────────────────────────────────────────────────────────────────
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,13 +65,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def enforce_body_size(request: Request, call_next):
+    """Reject requests with body larger than MAX_BODY_BYTES."""
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > MAX_BODY_BYTES:
+        logger.warning('"event": "body_too_large", "content_length": %s, "ip": "%s"',
+                       content_length, get_remote_address(request))
+        return JSONResponse(
+            status_code=413,
+            content={"detail": f"Request body too large. Maximum allowed: {MAX_BODY_BYTES} bytes."},
+        )
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log every request with method, path, status, and duration."""
+    start = time.monotonic()
+    response = await call_next(request)
+    duration_ms = round((time.monotonic() - start) * 1000, 1)
+    logger.info(
+        '"event": "request", "method": "%s", "path": "%s", "status": %d, "duration_ms": %s, "ip": "%s"',
+        request.method, request.url.path, response.status_code,
+        duration_ms, get_remote_address(request),
+    )
+    return response
+
+
 # ── Session storage ────────────────────────────────────────────────────────────
-# Key: session_id → (CustomerSupportEnv, created_at_timestamp)
+# Key: session_id → (CustomerSupportEnv, created_at monotonic timestamp)
 _sessions: dict[str, tuple[CustomerSupportEnv, float]] = {}
 
 
-def _sweep_expired_sessions() -> None:
-    """Fix 3: Remove sessions that have been idle longer than SESSION_TTL_SECONDS."""
+def _sweep_expired_sessions() -> int:
+    """Remove sessions older than SESSION_TTL_SECONDS. Returns count removed."""
     now = time.monotonic()
     expired = [
         sid for sid, (_, created_at) in _sessions.items()
@@ -55,6 +108,10 @@ def _sweep_expired_sessions() -> None:
     ]
     for sid in expired:
         del _sessions[sid]
+    if expired:
+        logger.info('"event": "session_sweep", "expired_count": %d, "active_sessions": %d',
+                    len(expired), len(_sessions))
+    return len(expired)
 
 
 def _get_env(session_id: str) -> CustomerSupportEnv:
@@ -72,15 +129,28 @@ def _get_env(session_id: str) -> CustomerSupportEnv:
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @app.post("/reset")
-def reset(task: Literal["easy", "medium", "hard"] = Query(default="easy")):
+@limiter.limit("30/minute")
+def reset(request: Request, task: Literal["easy", "medium", "hard"] = Query(default="easy")):
     """
-    Start a new episode. Returns a session_id and the initial observation.
-    Each call creates an isolated environment instance.
+    Start a new episode. Returns session_id + initial observation.
+    Rate limited: 30 resets/minute per IP.
+    Hard cap: 500 concurrent sessions.
     """
     _sweep_expired_sessions()
+
+    if len(_sessions) >= MAX_SESSIONS:
+        logger.warning('"event": "session_cap_hit", "active_sessions": %d', len(_sessions))
+        raise HTTPException(
+            status_code=503,
+            detail=f"Server at capacity ({MAX_SESSIONS} concurrent sessions). Try again later.",
+        )
+
     env = CustomerSupportEnv(task=task)
     obs = env.reset()
     _sessions[env.session_id] = (env, time.monotonic())
+
+    logger.info('"event": "session_created", "session_id": "%s", "task": "%s", "active_sessions": %d',
+                env.session_id, task, len(_sessions))
 
     return {
         "session_id": env.session_id,
@@ -94,8 +164,8 @@ def step(
     action: Action = ...,
 ):
     """
-    Apply an action to the environment. Returns observation, reward, done, info.
-    Cleans up session state when episode is done.
+    Apply an action to the environment.
+    Returns observation, reward, done, info (and final_score on done).
     """
     env = _get_env(session_id)
 
@@ -119,13 +189,18 @@ def step(
             final_score = reward.value
         response["final_score"] = final_score
         del _sessions[session_id]
+        logger.info('"event": "session_completed", "session_id": "%s", "task": "%s", "final_score": %.4f, "steps": %d',
+                    session_id, env.task, final_score, obs.step)
 
     return response
 
 
 @app.get("/state/{session_id}")
 def state(session_id: str):
-    """Return full internal state of an active session."""
+    """
+    Return full internal state of an active session.
+    Note: contains conversation history. Do not expose publicly in production.
+    """
     env = _get_env(session_id)
     return env.state()
 
@@ -133,13 +208,14 @@ def state(session_id: str):
 @app.get("/health")
 def health():
     """
-    Fix 6: Real health check — verifies ticket store is functional.
+    Real health check — verifies ticket store is functional.
     Returns 503 if the environment cannot be instantiated.
     """
     try:
         ticket_store.get_random_by_task("easy")
         env_ok = True
-    except Exception:
+    except Exception as exc:
+        logger.error('"event": "health_check_failed", "error": "%s"', str(exc))
         env_ok = False
 
     if not env_ok:
@@ -148,6 +224,7 @@ def health():
     return {
         "status": "ok",
         "active_sessions": len(_sessions),
+        "session_cap": MAX_SESSIONS,
         "env_functional": True,
     }
 

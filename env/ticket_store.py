@@ -1,3 +1,4 @@
+import copy
 import random
 from typing import List, Optional
 from env.models import Ticket
@@ -417,7 +418,9 @@ class TicketStore:
         pool = self._by_task.get(task)
         if not pool:
             raise ValueError(f"Unknown task '{task}'. Must be one of: easy, medium, hard")
-        return dict(random.choice(pool))
+        # Deep copy so mutations (e.g. to required_info_before_close list) never
+        # bleed across sessions that share the same underlying ticket dict.
+        return copy.deepcopy(random.choice(pool))
 
     def get_by_id(self, ticket_id: str) -> Optional[dict]:
         for ticket in TICKETS:

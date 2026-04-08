@@ -56,6 +56,11 @@ def _agent_messages(history: List[Message]) -> List[str]:
     return [m.content for m in history if m.role == "agent"]
 
 
+# Module-level TF-IDF vectorizer — reused across all calls instead of
+# instantiating a new object on every step (saves ~50k allocations/min at scale).
+_tfidf = TfidfVectorizer()
+
+
 def compute_loop_penalty(history: List[Message]) -> float:
     """
     Cosine similarity between the last two agent messages.
@@ -69,7 +74,7 @@ def compute_loop_penalty(history: List[Message]) -> float:
     if not all(m.strip() for m in last_two):
         return 0.0
     try:
-        vec = TfidfVectorizer().fit_transform(last_two)
+        vec = _tfidf.fit_transform(last_two)
         sim = cosine_similarity(vec[0], vec[1])[0][0]
         return -0.1 if sim > 0.85 else 0.0
     except Exception:

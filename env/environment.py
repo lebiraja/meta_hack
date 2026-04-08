@@ -6,11 +6,12 @@ Session isolation is enforced at the server layer (server/app.py).
 """
 
 import random
+import re
 import uuid
 from typing import Optional
 
 from env.models import Action, ActionType, Message, Observation, Reward
-from env.reward_engine import compute_step_reward
+from env.reward_engine import compute_step_reward, _INFO_PATTERNS
 from env.ticket_store import ticket_store
 
 # ── Task config ────────────────────────────────────────────────────────────────
@@ -173,9 +174,8 @@ class CustomerSupportEnv:
     def _build_observation(self) -> Observation:
         assert self._ticket is not None
         unresolved = self._compute_unresolved_issues()
-        # Fix 5: Return only the last 20 messages in the observation payload
-        # to prevent unbounded response sizes. Full history is kept internally
-        # for accurate reward and grading computation.
+        # Return only the last 20 messages in the observation payload to cap
+        # response size. Full history is kept internally for grading accuracy.
         history_window = self._history[-20:]
         return Observation(
             session_id=self.session_id,
@@ -201,12 +201,10 @@ class CustomerSupportEnv:
         tone_score is in [0, 1]; 0.5 is neutral.
         """
         if action.action_type == ActionType.RESPOND:
-            # Positive tone → improves sentiment, negative → worsens it
             delta = (tone_score - 0.5) * 0.4
         elif action.action_type == ActionType.REQUEST_INFO:
             delta = 0.05
         elif action.action_type == ActionType.ESCALATE:
-            # Escalating critical tickets: customer relieved; low/medium: annoyed
             priority = self._ticket.get("priority", "medium") if self._ticket else "medium"
             delta = 0.3 if priority == "critical" else -0.2
         elif action.action_type == ActionType.CLOSE:
@@ -217,10 +215,7 @@ class CustomerSupportEnv:
         self._sentiment = max(-1.0, min(1.0, self._sentiment + delta))
 
     def _simulate_customer_reply(self, action: Action) -> str:
-        """
-        Generate a contextually appropriate customer reply based on
-        their persona and the agent's action type.
-        """
+        """Generate a contextually appropriate customer reply based on persona."""
         assert self._ticket is not None
         persona = self._ticket.get("customer_persona", "polite")
         persona_replies = _FOLLOW_UPS.get(persona, _FOLLOW_UPS["polite"])
@@ -237,16 +232,13 @@ class CustomerSupportEnv:
 
     def _compute_unresolved_issues(self) -> list[str]:
         """
-        Returns list of required info items that the agent has not yet
-        gathered from the conversation.
+        Returns list of required info items not yet gathered from the conversation.
+        Uses top-level `re` and `_INFO_PATTERNS` imports (not inline).
         """
         if not self._ticket:
             return []
         required = self._ticket.get("required_info_before_close", [])
         all_text = " ".join(m.content for m in self._history)
-
-        import re
-        from env.reward_engine import _INFO_PATTERNS
 
         unresolved = []
         for info_type in required:
@@ -254,7 +246,6 @@ class CustomerSupportEnv:
             if pattern:
                 if not pattern.search(all_text):
                     unresolved.append(info_type)
-            # If no pattern, assume unresolved until customer replies ≥2 times
             elif sum(1 for m in self._history if m.role == "customer") < 2:
                 unresolved.append(info_type)
 

@@ -89,4 +89,14 @@ def grade(session_state: dict[str, Any]) -> float:
     else:
         score += weights["required_info"]
 
+    # --- PENALTIES ---
+    sentiment = session_state.get("sentiment", 0.0)
+    if sentiment < -0.3:
+        score *= 0.5
+    elif sentiment < 0.0:
+        score *= 0.75
+
+    if len(agent_text) < 60:
+        score *= 0.8
+
     return round(min(score, 1.0), 4)

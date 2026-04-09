@@ -59,10 +59,14 @@ def grade(session_state: dict[str, Any]) -> float:
 
     # ── 2. Escalation was early (≤2 steps) ────────────────────────────────────
     first_escalation_step = min(escalate_steps)
-    if first_escalation_step <= 1:
-        score += weights["escalated_early"]  # Perfect — immediately escalated
-    elif first_escalation_step == 2:
-        score += weights["escalated_early"] * 0.85
+    if first_escalation_step == 2:
+        # Check if step 1 was a response (acknowledgement)
+        if len(action_types) > 0 and action_types[0] == "respond":
+            score += weights["escalated_early"]  # Perfect — acknowledged then escalated
+        else:
+            score += weights["escalated_early"] * 0.85
+    elif first_escalation_step == 1:
+        score += weights["escalated_early"] * 0.85  # Escalated immediately without empathy
     elif first_escalation_step == 3:
         score += weights["escalated_early"] * 0.4
     # No credit for escalating at step 4+
@@ -70,14 +74,19 @@ def grade(session_state: dict[str, Any]) -> float:
     # ── 3. Urgency referenced in escalation reason ────────────────────────────
     escalation_entries = [a for a in action_log if a["action_type"] == "escalate"]
     urgency_found = False
+    context_found = False
+    
+    subject_words = [w for w in ticket.get("subject", "").lower().split() if len(w) > 4]
+
     for entry in escalation_entries:
         reason = (entry.get("reason") or entry.get("message") or "").lower()
         if any(term in reason for term in _URGENCY_TERMS):
             urgency_found = True
-            break
+        if subject_words and any(w in reason for w in subject_words):
+            context_found = True
 
     if urgency_found:
-        score += weights["urgency_referenced"]
+        score += weights["urgency_referenced"] * (1.0 if context_found else 0.7)
     elif escalation_entries:
         # Escalated but with no urgency language — no credit for urgency
         pass

@@ -99,4 +99,8 @@ def grade(session_state: dict[str, Any]) -> float:
     else:
         score += weights["required_info"]
 
+    # --- PENALTIES ---
+    if len(agent_full_text) < 60:
+        score *= 0.8
+
     return round(min(score, 1.0), 4)

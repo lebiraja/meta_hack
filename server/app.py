@@ -83,7 +83,6 @@ app = FastAPI(
     version="1.0.0",
     description="OpenEnv-compliant RL environment for customer support agent training.",
     lifespan=lifespan,
-    dependencies=[Depends(verify_api_key)]
 )
 
 # ── Middleware ─────────────────────────────────────────────────────────────────

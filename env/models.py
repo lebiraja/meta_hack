@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Literal, Dict, Any
 from enum import Enum
 
@@ -17,6 +17,16 @@ class Action(BaseModel):
 
     model_config = {"use_enum_values": True}
 
+    @model_validator(mode="after")
+    def validate_content(self):
+        if self.action_type == ActionType.RESPOND:
+            if not self.message or not self.message.strip():
+                raise ValueError("message cannot be empty when action_type is 'respond'")
+        if self.action_type == ActionType.ESCALATE:
+            if not self.reason or not self.reason.strip():
+                raise ValueError("reason cannot be empty when action_type is 'escalate'")
+        return self
+
 
 class Message(BaseModel):
     role: Literal["customer", "agent"]
@@ -33,6 +43,7 @@ class Observation(BaseModel):
     step: int
     max_steps: int
     customer_sentiment: float = Field(ge=-1.0, le=1.0)
+    mood_trajectory: List[float] = Field(default_factory=list)
     unresolved_issues: List[str]
     is_done: bool
     task: str
@@ -58,4 +69,4 @@ class Ticket(BaseModel):
     expected_resolution_type: str
     ideal_max_steps: int
     customer_persona: Literal["impatient", "polite", "confused"]
-    task: Literal["easy", "medium", "hard"]
+    task: Literal["easy", "medium", "hard", "nightmare"]

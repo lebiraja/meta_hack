@@ -1,0 +1,215 @@
+{
+  "main": {
+    "id": "298986a25bbfdd73",
+    "type": "split",
+    "children": [
+      {
+        "id": "1117f589a273e15e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f0ecf3547885ef5a",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "AUDIT.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "AUDIT"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "6939cad94de5fda5",
+    "type": "split",
+    "children": [
+      {
+        "id": "60748e414d75c901",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "3d2ff37fda5c4d0e",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "2526aa8a62540017",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "27cdcf0cb3bd0a0e",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "14927a48bd07b48b",
+    "type": "split",
+    "children": [
+      {
+        "id": "b576144a103f5190",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "8b5c82c98f867218",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "test_report.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for test_report"
+            }
+          },
+          {
+            "id": "ea5a86bbfd247c69",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "test_report.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from test_report"
+            }
+          },
+          {
+            "id": "58ef7f311009d234",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "1662d9a1a3245eaa",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "2d398331bc46d3c8",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "test_report.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of test_report"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "f0ecf3547885ef5a",
+  "lastOpenFiles": [
+    "test_after_huggg.md",
+    "pyproject.toml.tmp.122541.1775671745095",
+    "test_report.md",
+    "README.md.tmp.122541.1775670964243",
+    "README.md.tmp.122541.1775670917022",
+    "__pycache__/inference.cpython-312.pyc",
+    "__pycache__",
+    "inference.py.tmp.122541.1775670518408",
+    "requirements.txt.tmp.122541.1775670334929",
+    "tests/test_env.py.tmp.122541.1775670313419",
+    "tests/test_env.py.tmp.122541.1775670267474",
+    "requirements.txt.tmp.122541.1775670252190",
+    "test_usage_report_1.md",
+    "test_usage_report_2.md",
+    "usage_report.md",
+    "functional-noodling-petal.md",
+    "README.md",
+    "development.md",
+    "AgentOS.md",
+    "guide.md",
+    "gradio_env/lib/python3.12/site-packages/gradio_client/CHANGELOG.md",
+    "gradio_env/lib/python3.12/site-packages/huggingface_hub/templates/modelcard_template.md",
+    "gradio_env/lib/python3.12/site-packages/huggingface_hub/templates/datasetcard_template.md",
+    "gradio_env/lib/python3.12/site-packages/httpx-0.28.1.dist-info/licenses/LICENSE.md",
+    "gradio_env/lib/python3.12/site-packages/httpcore-1.0.9.dist-info/licenses/LICENSE.md",
+    "gradio_env/lib/python3.12/site-packages/idna-3.11.dist-info/licenses/LICENSE.md"
+  ]
+}

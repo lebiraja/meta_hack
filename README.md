@@ -62,6 +62,7 @@ The hard task is intentionally counter-intuitive: the correct behavior is to esc
 | `subject` | `string` | Ticket subject line |
 | `conversation_history` | `list[Message]` | Full message history (role + content) |
 | `customer_sentiment` | `float [-1, 1]` | Current estimated customer sentiment |
+| `mood_trajectory` | `list[float]` | Array of last 3 customer sentiment values |
 | `unresolved_issues` | `list[string]` | Info still needed before closing |
 | `step` | `int` | Current step number |
 | `max_steps` | `int` | Maximum steps for this task |
@@ -93,6 +94,13 @@ The hard task is intentionally counter-intuitive: the correct behavior is to esc
 - **Max steps:** 10
 - **Grader checks:** ESCALATE in step ≤2 AND reason references urgency (SLA, outage, critical, breach)
 - **Note:** Attempting to self-resolve is penalized. This is the counter-intuitive task.
+
+### nightmare — Multi-issue tickets requiring prioritisation
+- **Scenario:** Multiple conflicting issues in the same ticket (e.g. Account locked AND unauthorized charge)
+- **Ticket pool:** Critical priority, multi-category
+- **Expected behavior:** Resolve urgent access issue first, then handle secondary requests
+- **Max steps:** 12
+- **Grader checks:** Must perform resolution actions in the correct ideal_resolution_order
 
 ---
 
@@ -159,6 +167,10 @@ HF_TOKEN=your_hf_token  # optional, for HF Spaces deployment
 | `POST` | `/step?session_id=...` | Apply action, returns `{observation, reward, done, info}` |
 | `GET` | `/state/{session_id}` | Get full session state |
 | `GET` | `/health` | Health check |
+| `POST` | `/benchmark` | Start an automated benchmark suite (Placeholder) |
+| `GET` | `/leaderboard` | View global leaderboard rankings |
+| `POST` | `/leaderboard/submit` | Submit score to leaderboard |
+| `GET` | `/replay/{session_id}` | Fetch transcript and telemetry of a completed session |
 
 ### Run Tests
 

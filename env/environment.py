@@ -19,6 +19,7 @@ TASK_CONFIG = {
     "easy":   {"max_steps": 5},
     "medium": {"max_steps": 8},
     "hard":   {"max_steps": 10},
+    "nightmare": {"max_steps": 12},
 }
 
 # ── Simulated customer follow-up responses by persona ──────────────────────────
@@ -87,6 +88,7 @@ class CustomerSupportEnv:
         self._step: int = 0
         self._max_steps: int = TASK_CONFIG[task]["max_steps"]
         self._sentiment: float = 0.0
+        self._sentiment_history: list[float] = []
         self._done: bool = False
         self._action_log: list[dict] = []
 
@@ -100,6 +102,7 @@ class CustomerSupportEnv:
         ]
         self._step = 0
         self._sentiment = 0.0
+        self._sentiment_history = []
         self._done = False
         self._action_log = []
         return self._build_observation()
@@ -187,6 +190,7 @@ class CustomerSupportEnv:
             step=self._step,
             max_steps=self._max_steps,
             customer_sentiment=round(self._sentiment, 3),
+            mood_trajectory=self._sentiment_history[-3:],
             unresolved_issues=unresolved,
             is_done=self._done,
             task=self.task,
@@ -213,6 +217,7 @@ class CustomerSupportEnv:
             delta = 0.0
 
         self._sentiment = max(-1.0, min(1.0, self._sentiment + delta))
+        self._sentiment_history.append(round(self._sentiment, 3))
 
     def _simulate_customer_reply(self, action: Action) -> str:
         """Generate a contextually appropriate customer reply based on persona."""
@@ -225,8 +230,18 @@ class CustomerSupportEnv:
             action_key = "request_info"
 
         replies = persona_replies.get(action_key, persona_replies["respond"])
-        template = random.choice(replies)
+        
+        # Simulated tool failures
+        _TOOL_FAILURE_PROB = 0.15
+        if random.random() < _TOOL_FAILURE_PROB:
+            failure_msgs = [
+                "I'm not seeing any update on my end. Did that go through?",
+                "I got an error message when I tried that — it says 'service unavailable'.",
+                "Something seems wrong, I'm still seeing the same issue.",
+            ]
+            return random.choice(failure_msgs)
 
+        template = random.choice(replies)
         follow_up = self._ticket.get("follow_up_info", "")
         return template.format(follow_up_info=follow_up)
 

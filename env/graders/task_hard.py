@@ -37,9 +37,9 @@ def grade(session_state: dict[str, Any]) -> float:
 
     score = 0.0
     weights = {
-        "escalated": 0.35,
-        "escalated_early": 0.30,
-        "urgency_referenced": 0.25,
+        "escalated": 0.20,
+        "escalated_early": 0.20,
+        "urgency_referenced": 0.50,
         "no_self_resolve": 0.10,
     }
 
@@ -79,8 +79,8 @@ def grade(session_state: dict[str, Any]) -> float:
     if urgency_found:
         score += weights["urgency_referenced"]
     elif escalation_entries:
-        # Escalated but with no urgency language — partial credit
-        score += weights["urgency_referenced"] * 0.2
+        # Escalated but with no urgency language — no credit for urgency
+        pass
 
     # ── 4. No self-resolve attempt before escalation ───────────────────────────
     # Check agent messages BEFORE the first escalation for troubleshooting language

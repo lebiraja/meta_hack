@@ -12,6 +12,7 @@ Penalties (applied before clamping):
   - Loop detection via cosine similarity > 0.85: -0.1 per occurrence
 """
 
+from difflib import SequenceMatcher
 import re
 from typing import List, Optional
 
@@ -24,14 +25,16 @@ from env.models import Action, ActionType, Message, Reward
 
 _analyzer = SentimentIntensityAnalyzer()
 
-# Map from expected_resolution_type → keywords/signals agent should use
-_RESOLUTION_SIGNALS: dict[str, list[str]] = {
-    "refund_initiated": ["refund", "reimburse", "credit", "return the charge", "process a refund", "issue a refund", "money back"],
-    "billing_clarification": ["clarif", "explain", "adjust", "correct", "update", "fix", "change", "resolve", "address"],
-    "technical_fix_provided": ["fix", "resolv", "solution", "workaround", "update", "patch", "restart", "reinstall", "clear cache", "try", "follow these steps", "here's how"],
-    "account_access_restored": ["reset", "unlock", "restore", "access", "re-enable", "send you a link", "recover"],
-    "escalated_to_engineering": ["escalat", "engineering", "senior", "technical team", "on-call", "specialist", "transfer"],
-    "escalated_to_security": ["escalat", "security team", "incident response", "lockdown", "revoke", "specialist"],
+from sentence_transformers import SentenceTransformer, util
+
+_SEMANTIC_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+_RESOLUTION_TEMPLATES = {
+    "refund_initiated": "I have processed a full refund for your account.",
+    "billing_clarification": "I have clarified and corrected the billing issue.",
+    "technical_fix_provided": "Here are the steps to resolve the technical problem.",
+    "account_access_restored": "I have restored access to your account.",
+    "escalated_to_engineering": "Escalating to senior engineering team immediately.",
+    "escalated_to_security": "Escalating to security incident response team immediately.",
 }
 
 # Info tokens to search for in conversation
@@ -56,15 +59,14 @@ def _agent_messages(history: List[Message]) -> List[str]:
     return [m.content for m in history if m.role == "agent"]
 
 
-# Module-level TF-IDF vectorizer — reused across all calls instead of
-# instantiating a new object on every step (saves ~50k allocations/min at scale).
-_tfidf = TfidfVectorizer()
+def _agent_messages(history: List[Message]) -> List[str]:
+    return [m.content for m in history if m.role == "agent"]
 
 
 def compute_loop_penalty(history: List[Message]) -> float:
     """
-    Cosine similarity between the last two agent messages.
-    Returns -0.1 if similarity > 0.85, else 0.0.
+    Cosine similarity and character-level similarity to detect loops.
+    Returns -0.1 if similarity > 0.80 or char_sim > 0.85, else 0.0.
     Handles edge cases: <2 agent messages, empty strings.
     """
     agent_msgs = _agent_messages(history)
@@ -73,12 +75,15 @@ def compute_loop_penalty(history: List[Message]) -> float:
     last_two = agent_msgs[-2:]
     if not all(m.strip() for m in last_two):
         return 0.0
+    
+    char_sim = SequenceMatcher(None, last_two[0], last_two[1]).ratio()
     try:
-        vec = _tfidf.fit_transform(last_two)
+        tfidf = TfidfVectorizer()
+        vec = tfidf.fit_transform(last_two)
         sim = cosine_similarity(vec[0], vec[1])[0][0]
-        return -0.1 if sim > 0.85 else 0.0
+        return -0.1 if (sim > 0.80 or char_sim > 0.85) else 0.0
     except Exception:
-        return 0.0
+        return -0.1 if char_sim > 0.85 else 0.0
 
 
 def compute_resolution_score(
@@ -96,8 +101,8 @@ def compute_resolution_score(
         return 0.0
 
     expected = ticket.get("expected_resolution_type", "")
-    signals = _RESOLUTION_SIGNALS.get(expected, [])
-    if not signals:
+    template = _RESOLUTION_TEMPLATES.get(expected)
+    if not template:
         return 0.5
 
     agent_text = " ".join(
@@ -106,8 +111,12 @@ def compute_resolution_score(
     if action.message:
         agent_text += " " + action.message.lower()
 
-    matched = sum(1 for sig in signals if sig in agent_text)
-    score = min(matched / max(len(signals) * 0.4, 1), 1.0)
+    if not agent_text.strip():
+        score = 0.0
+    else:
+        emb_template = _SEMANTIC_MODEL.encode(template, convert_to_tensor=True)
+        emb_agent = _SEMANTIC_MODEL.encode(agent_text[-512:], convert_to_tensor=True)
+        score = float(util.cos_sim(emb_template, emb_agent)[0][0].clamp(0, 1))
 
     # Escalation tasks: ESCALATE is the correct resolution
     if expected.startswith("escalated_to") and action.action_type == ActionType.ESCALATE:
@@ -167,6 +176,18 @@ def compute_escalation_penalty(action: Action, ticket: dict) -> float:
         return -0.3
     return 0.0
 
+def compute_contradiction_penalty(action: Action, history: List[Message]) -> float:
+    """Penalize if agent claims completion then asks for info already provided."""
+    agent_msgs = [m.content.lower() for m in history if m.role == "agent"]
+    if len(agent_msgs) < 2: 
+        return 0.0
+    completion_claims = ["processed", "resolved", "fixed", "refund", "restored"]
+    info_request_words = ["could you provide", "can you share", "please give me", "what is your"]
+    last = action.message.lower() if action.message else ""
+    prev_claimed_done = any(w in " ".join(agent_msgs[-3:]) for w in completion_claims)
+    now_asking_info = any(w in last for w in info_request_words)
+    return -0.15 if (prev_claimed_done and now_asking_info) else 0.0
+
 
 def compute_step_reward(
     action: Action,
@@ -189,6 +210,9 @@ def compute_step_reward(
 
     # ── Loop penalty (always checked) ───────────────────────────
     loop_penalty = compute_loop_penalty(history)
+    
+    # ── Contradiction penalty (always checked) ──────────────────
+    contradiction_penalty = compute_contradiction_penalty(action, history)
 
     # ── Terminal signals ─────────────────────────────────────────
     if is_terminal:
@@ -217,6 +241,7 @@ def compute_step_reward(
         + 0.20 * efficiency_score
         + 0.20 * accuracy_score
         + loop_penalty
+        + contradiction_penalty
         + escalation_penalty
         + info_gathering_bonus
     )
@@ -232,6 +257,7 @@ def compute_step_reward(
         breakdown={
             "raw": round(raw, 4),
             "loop_penalty": loop_penalty,
+            "contradiction_penalty": contradiction_penalty,
             "escalation_penalty": escalation_penalty,
             "info_gathering_bonus": info_gathering_bonus,
             "is_terminal": is_terminal,

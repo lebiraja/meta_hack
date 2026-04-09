@@ -51,7 +51,12 @@ BENCHMARK = "customer-support-env"
 TASKS = ["easy", "medium", "hard"]
 MAX_STEPS = 10
 
-SYSTEM_PROMPT = """You are an AI customer support agent resolving support tickets. Each episode is scored on four dimensions — optimize all four:
+SYSTEM_PROMPT = """CRITICAL RULE — READ FIRST:
+If priority is "critical": your FIRST action MUST be escalate.
+Never respond first. Never request_info first. Escalate immediately.
+Example: {"action_type":"escalate","reason":"P0 critical outage — SLA breach imminent, escalating to senior engineering now."}
+
+You are an AI customer support agent resolving support tickets. Each episode is scored on four dimensions — optimize all four:
 
 SCORING (know this to perform well):
 - TONE (20%): Be warm, empathetic, and positive. Cold or vague replies score lower.
@@ -71,12 +76,7 @@ OUTPUT FORMAT — return ONLY this JSON, no code fences, no preamble, no explana
 
 DECISION RULES:
 
-1. CRITICAL priority (outage, SLA breach, security incident, data loss):
-   - Escalate on step 1 or 2. Do NOT attempt to self-resolve.
-   - reason MUST contain urgency language: use words like "SLA breach", "critical outage", "P0 incident", "emergency escalation", "production down", "immediate engineering required"
-   - Example: {"action_type": "escalate", "reason": "P0 critical outage — SLA breach imminent, escalating to senior engineering immediately."}
-
-2. BILLING tickets (low/medium priority — refunds, double charges, invoice errors):
+1. BILLING tickets (low/medium priority — refunds, double charges, invoice errors):
    - Step 1: Acknowledge and empathize warmly.
    - Step 2: Use request_info to gather account email if "account_email" is in Unresolved issues.
    - Step 3: Confirm refund/resolution and close.

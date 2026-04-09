@@ -33,6 +33,7 @@ class Observation(BaseModel):
     step: int
     max_steps: int
     customer_sentiment: float = Field(ge=-1.0, le=1.0)
+    mood_trajectory: List[float] = Field(default_factory=list)
     unresolved_issues: List[str]
     is_done: bool
     task: str
@@ -58,4 +59,4 @@ class Ticket(BaseModel):
     expected_resolution_type: str
     ideal_max_steps: int
     customer_persona: Literal["impatient", "polite", "confused"]
-    task: Literal["easy", "medium", "hard"]
+    task: Literal["easy", "medium", "hard", "nightmare"]

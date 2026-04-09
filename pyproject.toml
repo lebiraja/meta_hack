@@ -19,6 +19,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "slowapi>=0.1.9",
     "openenv-core>=0.2.0",
+    "structlog>=25.5.0",
+    "sentence-transformers>=5.3.0",
 ]
 
 [project.scripts]

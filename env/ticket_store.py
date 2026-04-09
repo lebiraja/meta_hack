@@ -405,12 +405,27 @@ TICKETS: List[dict] = [
         "customer_persona": "impatient",
         "task": "hard",
     },
+    # ─────────────────────────────────────────────────────────────
+    # NIGHTMARE — Multi-issue tickets requiring prioritisation
+    # ─────────────────────────────────────────────────────────────
+    {
+        "id": "TKT-031",
+        "category": "multi",
+        "priority": "high",
+        "subject": "Account locked AND unauthorized charge — help!",
+        "opening_message": "I can't log in to my account AND I see a $299 charge I didn't authorize. I need both fixed immediately.",
+        "follow_up_info": "My email is user@email.com",
+        "required_info_before_close": ["account_email"],
+        "expected_resolution_type": "account_access_first",
+        "ideal_max_steps": 5,
+        "customer_persona": "impatient",
+        "task": "nightmare",
+    },
 ]
-
 
 class TicketStore:
     def __init__(self) -> None:
-        self._by_task: dict[str, list[dict]] = {"easy": [], "medium": [], "hard": []}
+        self._by_task: dict[str, list[dict]] = {"easy": [], "medium": [], "hard": [], "nightmare": []}
         for ticket in TICKETS:
             self._by_task[ticket["task"]].append(ticket)
 

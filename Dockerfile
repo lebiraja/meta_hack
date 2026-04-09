@@ -7,13 +7,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 
 # Install Python dependencies first (layer caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
 # Copy source
 COPY . .
 
 # Install package in editable mode (no sys.path hacks)
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -e .
 
 EXPOSE 7860
 

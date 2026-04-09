@@ -13,15 +13,18 @@ Production hardening applied:
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+import asyncio
 import logging
-import logging.config
 import time
 import uuid
+import structlog
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -32,12 +35,21 @@ from env.models import Action
 from env.ticket_store import ticket_store
 
 # ── Logging ────────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "msg": %(message)s}',
-    datefmt="%Y-%m-%dT%H:%M:%SZ",
-)
-logger = logging.getLogger("customer_support_env")
+structlog.configure(processors=[structlog.processors.JSONRenderer()])
+logger = structlog.get_logger("customer_support_env")
+
+async def _periodic_sweep():
+    while True:
+        await asyncio.sleep(300)
+        n = _sweep_expired_sessions()
+        if n: 
+            logger.info("periodic_sweep", removed=n)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(_periodic_sweep())
+    yield
+    task.cancel()
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
@@ -51,6 +63,7 @@ app = FastAPI(
     title="CustomerSupportEnv",
     version="1.0.0",
     description="OpenEnv-compliant RL environment for customer support agent training.",
+    lifespan=lifespan,
 )
 
 # ── Middleware ─────────────────────────────────────────────────────────────────
@@ -71,8 +84,7 @@ async def enforce_body_size(request: Request, call_next):
     """Reject requests with body larger than MAX_BODY_BYTES."""
     content_length = request.headers.get("content-length")
     if content_length and int(content_length) > MAX_BODY_BYTES:
-        logger.warning('"event": "body_too_large", "content_length": %s, "ip": "%s"',
-                       content_length, get_remote_address(request))
+        logger.warning("body_too_large", content_length=content_length, ip=get_remote_address(request))
         return JSONResponse(
             status_code=413,
             content={"detail": f"Request body too large. Maximum allowed: {MAX_BODY_BYTES} bytes."},
@@ -87,9 +99,12 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     duration_ms = round((time.monotonic() - start) * 1000, 1)
     logger.info(
-        '"event": "request", "method": "%s", "path": "%s", "status": %d, "duration_ms": %s, "ip": "%s"',
-        request.method, request.url.path, response.status_code,
-        duration_ms, get_remote_address(request),
+        "request", 
+        method=request.method, 
+        path=request.url.path, 
+        status=response.status_code,
+        duration_ms=duration_ms, 
+        ip=get_remote_address(request)
     )
     return response
 
@@ -97,6 +112,18 @@ async def log_requests(request: Request, call_next):
 # ── Session storage ────────────────────────────────────────────────────────────
 # Key: session_id → (CustomerSupportEnv, created_at monotonic timestamp)
 _sessions: dict[str, tuple[CustomerSupportEnv, float]] = {}
+
+# Storage for completed sessions (replays) and the leaderboard
+_completed_sessions: dict[str, dict] = {}
+_leaderboard: list[dict] = []
+
+class BenchmarkSubmit(BaseModel):
+    agent_name: str
+    task_level: str
+    total_score: float
+    success_rate: float
+    avg_steps: float
+    sessions_run: int
 
 
 def _sweep_expired_sessions() -> int:
@@ -109,8 +136,7 @@ def _sweep_expired_sessions() -> int:
     for sid in expired:
         del _sessions[sid]
     if expired:
-        logger.info('"event": "session_sweep", "expired_count": %d, "active_sessions": %d',
-                    len(expired), len(_sessions))
+        logger.info("session_sweep", expired_count=len(expired), active_sessions=len(_sessions))
     return len(expired)
 
 
@@ -130,7 +156,7 @@ def _get_env(session_id: str) -> CustomerSupportEnv:
 
 @app.post("/reset")
 @limiter.limit("30/minute")
-def reset(request: Request, task: Literal["easy", "medium", "hard"] = Query(default="easy")):
+def reset(request: Request, task: Literal["easy", "medium", "hard", "nightmare"] = Query(default="easy")):
     """
     Start a new episode. Returns session_id + initial observation.
     Rate limited: 30 resets/minute per IP.
@@ -139,7 +165,7 @@ def reset(request: Request, task: Literal["easy", "medium", "hard"] = Query(defa
     _sweep_expired_sessions()
 
     if len(_sessions) >= MAX_SESSIONS:
-        logger.warning('"event": "session_cap_hit", "active_sessions": %d', len(_sessions))
+        logger.warning("session_cap_hit", active_sessions=len(_sessions))
         raise HTTPException(
             status_code=503,
             detail=f"Server at capacity ({MAX_SESSIONS} concurrent sessions). Try again later.",
@@ -149,8 +175,7 @@ def reset(request: Request, task: Literal["easy", "medium", "hard"] = Query(defa
     obs = env.reset()
     _sessions[env.session_id] = (env, time.monotonic())
 
-    logger.info('"event": "session_created", "session_id": "%s", "task": "%s", "active_sessions": %d',
-                env.session_id, task, len(_sessions))
+    logger.info("session_created", session_id=env.session_id, task=task, active_sessions=len(_sessions))
 
     return {
         "session_id": env.session_id,
@@ -188,9 +213,18 @@ def step(
         except Exception:
             final_score = reward.value
         response["final_score"] = final_score
+        
+        # Save replay data
+        state["final_score"] = final_score
+        _completed_sessions[session_id] = state
+        
+        # Enforce memory cap on completed sessions (prevent HF Space OOM over thousands of episodes)
+        if len(_completed_sessions) > 1000:
+            oldest = next(iter(_completed_sessions))
+            del _completed_sessions[oldest]
+            
         del _sessions[session_id]
-        logger.info('"event": "session_completed", "session_id": "%s", "task": "%s", "final_score": %.4f, "steps": %d',
-                    session_id, env.task, final_score, obs.step)
+        logger.info("session_completed", session_id=session_id, task=env.task, final_score=final_score, steps=obs.step)
 
     return response
 
@@ -205,6 +239,46 @@ def state(session_id: str):
     return env.state()
 
 
+@app.get("/replay/{session_id}")
+def replay(session_id: str):
+    """
+    Return the full internal state and history of a completed session.
+    """
+    if session_id not in _completed_sessions:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Completed session '{session_id}' not found. Either it's still active, it expired, or it never existed."
+        )
+    return _completed_sessions[session_id]
+
+
+@app.get("/leaderboard")
+def get_leaderboard():
+    """Return the global leaderboard, sorted by score descending."""
+    return sorted(_leaderboard, key=lambda x: x["total_score"], reverse=True)
+
+
+@app.post("/leaderboard/submit")
+def submit_leaderboard(submission: BenchmarkSubmit):
+    """Submit benchmark results to the public leaderboard."""
+    _leaderboard.append(submission.model_dump())
+    
+    # Sort and cap to top 100 entries to prevent memory leaks
+    _leaderboard.sort(key=lambda x: x["total_score"], reverse=True)
+    if len(_leaderboard) > 100:
+        _leaderboard[:] = _leaderboard[:100]
+        
+    return {"status": "success", "message": "Benchmark submitted to leaderboard."}
+
+
+@app.post("/benchmark")
+def run_benchmark():
+    """
+    Placeholder for triggering an automated benchmark run.
+    """
+    return {"status": "acknowledged", "message": "Benchmark started. Use /leaderboard to check results later."}
+
+
 @app.get("/health")
 def health():
     """
@@ -215,7 +289,7 @@ def health():
         ticket_store.get_random_by_task("easy")
         env_ok = True
     except Exception as exc:
-        logger.error('"event": "health_check_failed", "error": "%s"', str(exc))
+        logger.error("health_check_failed", error=str(exc))
         env_ok = False
 
     if not env_ok:

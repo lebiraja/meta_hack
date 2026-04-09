@@ -17,6 +17,9 @@ tasks:
   - name: hard
     description: SLA-critical escalation triage (enterprise outages, security incidents — agent must escalate within 2 steps)
     max_steps: 10
+  - name: nightmare
+    description: Multi-issue tickets requiring prioritisation (e.g. Account locked AND unauthorized charge)
+    max_steps: 12
 action_space:
   type: ActionType
   values:
@@ -32,6 +35,7 @@ observation_space:
   subject: string
   conversation_history: "list[{role: customer|agent, content: string}]"
   customer_sentiment: "float in [-1.0, 1.0]"
+  mood_trajectory: "list[float]"
   unresolved_issues: "list[string]"
   step: int
   max_steps: int
@@ -53,7 +57,11 @@ tags:
   - pytorch
   - meta-hackathon
 endpoints:
-  reset: "POST /reset?task={easy|medium|hard}"
+  reset: "POST /reset?task={easy|medium|hard|nightmare}"
   step: "POST /step?session_id={id}"
   state: "GET /state/{session_id}"
   health: "GET /health"
+  benchmark: "POST /benchmark"
+  leaderboard: "GET /leaderboard"
+  leaderboard_submit: "POST /leaderboard/submit"
+  replay: "GET /replay/{session_id}"

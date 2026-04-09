@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Literal, Dict, Any
 from enum import Enum
 
@@ -16,6 +16,16 @@ class Action(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=500)
 
     model_config = {"use_enum_values": True}
+
+    @model_validator(mode="after")
+    def validate_content(self):
+        if self.action_type == ActionType.RESPOND:
+            if not self.message or not self.message.strip():
+                raise ValueError("message cannot be empty when action_type is 'respond'")
+        if self.action_type == ActionType.ESCALATE:
+            if not self.reason or not self.reason.strip():
+                raise ValueError("reason cannot be empty when action_type is 'escalate'")
+        return self
 
 
 class Message(BaseModel):

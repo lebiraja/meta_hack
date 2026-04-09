@@ -21,10 +21,12 @@ import uuid
 import structlog
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Security, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
+import os
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -35,8 +37,25 @@ from env.models import Action
 from env.ticket_store import ticket_store
 
 # ── Logging ────────────────────────────────────────────────────────────────────
-structlog.configure(processors=[structlog.processors.JSONRenderer()])
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.JSONRenderer()
+    ]
+)
 logger = structlog.get_logger("customer_support_env")
+
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+EXPECTED_API_KEY = os.environ.get("ADMIN_API_KEY", "meta_hack_2026")
+
+async def verify_api_key(api_key: str = Security(api_key_header)):
+    if api_key != EXPECTED_API_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Invalid X-API-Key",
+        )
+    return api_key
 
 async def _periodic_sweep():
     while True:
@@ -56,7 +75,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 MAX_SESSIONS = 500          # hard cap on concurrent sessions
-SESSION_TTL_SECONDS = 1800  # 30 minutes
+SESSION_TTL_SECONDS = 300   # 5 minutes
 MAX_BODY_BYTES = 64 * 1024  # 64KB per request
 
 app = FastAPI(
@@ -64,6 +83,7 @@ app = FastAPI(
     version="1.0.0",
     description="OpenEnv-compliant RL environment for customer support agent training.",
     lifespan=lifespan,
+    dependencies=[Depends(verify_api_key)]
 )
 
 # ── Middleware ─────────────────────────────────────────────────────────────────
@@ -118,12 +138,8 @@ _completed_sessions: dict[str, dict] = {}
 _leaderboard: list[dict] = []
 
 class BenchmarkSubmit(BaseModel):
-    agent_name: str
-    task_level: str
-    total_score: float
-    success_rate: float
-    avg_steps: float
-    sessions_run: int
+    session_id: str = Field(..., description="UUID of the completed proof-of-play session")
+    agent_name: str = Field(..., min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_\-]+$")
 
 
 def _sweep_expired_sessions() -> int:
@@ -150,6 +166,24 @@ def _get_env(session_id: str) -> CustomerSupportEnv:
             detail=f"Session '{session_id}' not found. Call /reset to start a new episode.",
         )
     return entry[0]
+
+
+import re
+import copy
+
+def sanitize_pii(state: dict) -> dict:
+    """Mask PII in conversation history to prevent sensitive data exposure via endpoints."""
+    if "history" not in state:
+        return state
+        
+    s_state = copy.deepcopy(state)
+    email_regex = re.compile(r"[\w\.-]+@[\w\.-]+\.\w+")
+    
+    for msg in s_state["history"]:
+        if "content" in msg:
+            msg["content"] = email_regex.sub("[REDACTED_EMAIL]", msg["content"])
+            
+    return s_state
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -184,7 +218,9 @@ def reset(request: Request, task: Literal["easy", "medium", "hard", "nightmare"]
 
 
 @app.post("/step")
+@limiter.limit("200/minute")
 def step(
+    request: Request,
     session_id: str = Query(..., description="Session ID returned by /reset"),
     action: Action = ...,
 ):
@@ -230,49 +266,67 @@ def step(
 
 
 @app.get("/state/{session_id}")
-def state(session_id: str):
+def state(request: Request, session_id: str):
     """
     Return full internal state of an active session.
-    Note: contains conversation history. Do not expose publicly in production.
+    Conversation history is sanitized of simulated PII.
     """
     env = _get_env(session_id)
-    return env.state()
+    return sanitize_pii(env.state())
 
 
 @app.get("/replay/{session_id}")
-def replay(session_id: str):
+def replay(request: Request, session_id: str):
     """
     Return the full internal state and history of a completed session.
+    Conversation history is sanitized of simulated PII.
     """
     if session_id not in _completed_sessions:
         raise HTTPException(
             status_code=404,
             detail=f"Completed session '{session_id}' not found. Either it's still active, it expired, or it never existed."
         )
-    return _completed_sessions[session_id]
+    return sanitize_pii(_completed_sessions[session_id])
 
 
 @app.get("/leaderboard")
-def get_leaderboard():
+def get_leaderboard(request: Request):
     """Return the global leaderboard, sorted by score descending."""
     return sorted(_leaderboard, key=lambda x: x["total_score"], reverse=True)
 
 
 @app.post("/leaderboard/submit")
-def submit_leaderboard(submission: BenchmarkSubmit):
-    """Submit benchmark results to the public leaderboard."""
-    _leaderboard.append(submission.model_dump())
+@limiter.limit("30/minute")
+def submit_leaderboard(request: Request, submission: BenchmarkSubmit):
+    """Submit benchmark results safely via proof-of-play mechanics."""
+    # Proof of play verification:
+    if submission.session_id not in _completed_sessions:
+        raise HTTPException(
+            status_code=404, 
+            detail="Session ID not found in completed replays. You must complete a session before submitting."
+        )
+        
+    session_data = _completed_sessions[submission.session_id]
+    
+    score_entry = {
+        "agent_name": submission.agent_name,
+        "task_level": session_data["task"],
+        "total_score": session_data["final_score"],
+        "steps_taken": session_data["step"]
+    }
+    
+    _leaderboard.append(score_entry)
     
     # Sort and cap to top 100 entries to prevent memory leaks
     _leaderboard.sort(key=lambda x: x["total_score"], reverse=True)
     if len(_leaderboard) > 100:
         _leaderboard[:] = _leaderboard[:100]
         
-    return {"status": "success", "message": "Benchmark submitted to leaderboard."}
+    return {"status": "success", "message": "Benchmark strictly verified and published."}
 
 
 @app.post("/benchmark")
-def run_benchmark():
+def run_benchmark(request: Request):
     """
     Placeholder for triggering an automated benchmark run.
     """
@@ -280,7 +334,8 @@ def run_benchmark():
 
 
 @app.get("/health")
-def health():
+@limiter.limit("60/minute")
+def health(request: Request):
     """
     Real health check — verifies ticket store is functional.
     Returns 503 if the environment cannot be instantiated.
@@ -304,7 +359,8 @@ def health():
 
 
 @app.get("/")
-def root():
+@limiter.limit("60/minute")
+def root(request: Request):
     return {
         "name": "CustomerSupportEnv",
         "version": "1.0.0",

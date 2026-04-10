@@ -3,18 +3,19 @@ Reward engine — measures conversational quality and problem-solving.
 
 Signals:
   - Tone (20%):       VADER sentiment on agent messages
-  - Resolution (40%): Solution category match on CLOSE
+  - Resolution (40%): Keyword-category match on CLOSE/ESCALATE
   - Efficiency (20%): Steps used vs max_steps
   - Accuracy (20%):   Required info gathered before closing
 
 Penalties (applied before clamping):
   - Unnecessary escalation of low/medium priority: -0.3
-  - Loop detection via cosine similarity > 0.85: -0.1 per occurrence
+  - Loop detection via TF-IDF cosine + char similarity: -0.1
+  - Contradiction (claimed done then asked for info): -0.15
 """
 
 from difflib import SequenceMatcher
 import re
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -25,24 +26,49 @@ from env.models import Action, ActionType, Message, Reward
 
 _analyzer = SentimentIntensityAnalyzer()
 
-from sentence_transformers import SentenceTransformer, util
+# Module-level TF-IDF singleton — reused across all calls
+_tfidf = TfidfVectorizer()
 
-_SEMANTIC_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
-_RESOLUTION_TEMPLATES = {
-    "refund_initiated": "I have processed a full refund for your account.",
-    "billing_clarification": "I have clarified and corrected the billing issue.",
-    "technical_fix_provided": "Here are the steps to resolve the technical problem.",
-    "account_access_restored": "I have restored access to your account.",
-    "escalated_to_engineering": "Escalating to senior engineering team immediately.",
-    "escalated_to_security": "Escalating to security incident response team immediately.",
+# Resolution signal keywords per expected_resolution_type
+_RESOLUTION_SIGNALS: dict[str, list[str]] = {
+    "refund_initiated": [
+        "refund", "reimburse", "credit", "return the charge",
+        "process a refund", "issue a refund", "money back",
+    ],
+    "billing_clarification": [
+        "clarif", "explain", "adjust", "correct", "update",
+        "fix", "change", "resolve", "address",
+    ],
+    "technical_fix_provided": [
+        "fix", "resolv", "solution", "workaround", "update",
+        "patch", "restart", "reinstall", "clear cache", "try",
+        "follow these steps", "here's how",
+    ],
+    "account_access_restored": [
+        "reset", "unlock", "restore", "access", "re-enable",
+        "send you a link", "recover",
+    ],
+    "escalated_to_engineering": [
+        "escalat", "engineering", "senior", "technical team",
+        "on-call", "specialist", "transfer",
+    ],
+    "escalated_to_security": [
+        "escalat", "security team", "incident response",
+        "lockdown", "revoke", "specialist",
+    ],
 }
 
-# Info tokens to search for in conversation
+# Info patterns for accuracy scoring
 _INFO_PATTERNS: dict[str, re.Pattern] = {
     "account_email": re.compile(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", re.IGNORECASE),
     "order_id": re.compile(r"\b(?:order|ord|#)\s*[-]?\s*[A-Z0-9]{4,}\b", re.IGNORECASE),
-    "account_username": re.compile(r"\b(?:username|user\s*name|account\s*name|login)\b.*?:\s*\S+", re.IGNORECASE),
-    "device_info": re.compile(r"\b(?:iphone|android|ios|windows|mac|chrome|firefox|safari|app version)\b", re.IGNORECASE),
+    "account_username": re.compile(
+        r"\b(?:username|user\s*name|account\s*name|login)\b.*?:\s*\S+", re.IGNORECASE
+    ),
+    "device_info": re.compile(
+        r"\b(?:iphone|android|ios|windows|mac|chrome|firefox|safari|app version)\b",
+        re.IGNORECASE,
+    ),
 }
 
 
@@ -51,12 +77,7 @@ def compute_tone_score(message: str) -> float:
     if not message or not message.strip():
         return 0.5
     scores = _analyzer.polarity_scores(message)
-    compound = scores["compound"]
-    return (compound + 1.0) / 2.0
-
-
-def _agent_messages(history: List[Message]) -> List[str]:
-    return [m.content for m in history if m.role == "agent"]
+    return (scores["compound"] + 1.0) / 2.0
 
 
 def _agent_messages(history: List[Message]) -> List[str]:
@@ -65,9 +86,9 @@ def _agent_messages(history: List[Message]) -> List[str]:
 
 def compute_loop_penalty(history: List[Message]) -> float:
     """
-    Cosine similarity and character-level similarity to detect loops.
-    Returns -0.1 if similarity > 0.80 or char_sim > 0.85, else 0.0.
-    Handles edge cases: <2 agent messages, empty strings.
+    Detects repeated agent messages via TF-IDF cosine similarity
+    AND character-level SequenceMatcher ratio.
+    Returns -0.1 if either threshold exceeded.
     """
     agent_msgs = _agent_messages(history)
     if len(agent_msgs) < 2:
@@ -75,13 +96,12 @@ def compute_loop_penalty(history: List[Message]) -> float:
     last_two = agent_msgs[-2:]
     if not all(m.strip() for m in last_two):
         return 0.0
-    
+
     char_sim = SequenceMatcher(None, last_two[0], last_two[1]).ratio()
     try:
-        tfidf = TfidfVectorizer()
-        vec = tfidf.fit_transform(last_two)
-        sim = cosine_similarity(vec[0], vec[1])[0][0]
-        return -0.1 if (sim > 0.80 or char_sim > 0.85) else 0.0
+        vec = _tfidf.fit_transform(last_two)
+        cos_sim = cosine_similarity(vec[0], vec[1])[0][0]
+        return -0.1 if (cos_sim > 0.80 or char_sim > 0.85) else 0.0
     except Exception:
         return -0.1 if char_sim > 0.85 else 0.0
 
@@ -92,17 +112,15 @@ def compute_resolution_score(
     history: List[Message],
 ) -> float:
     """
-    On CLOSE: checks whether the conversation contains signals matching
-    the ticket's expected_resolution_type. NOT keyword stuffing — we
-    check that the *agent* used substantive resolution language.
-    On non-CLOSE: returns 0.0 (resolution is only judged at episode end).
+    On CLOSE/ESCALATE: checks agent conversation for category-matched
+    resolution language. NOT keyword stuffing — requires substantive language.
     """
     if action.action_type not in (ActionType.CLOSE, ActionType.ESCALATE):
         return 0.0
 
     expected = ticket.get("expected_resolution_type", "")
-    template = _RESOLUTION_TEMPLATES.get(expected)
-    if not template:
+    signals = _RESOLUTION_SIGNALS.get(expected, [])
+    if not signals:
         return 0.5
 
     agent_text = " ".join(
@@ -110,25 +128,26 @@ def compute_resolution_score(
     )
     if action.message:
         agent_text += " " + action.message.lower()
+    if action.reason:
+        agent_text += " " + action.reason.lower()
 
-    if not agent_text.strip():
-        score = 0.0
-    else:
-        emb_template = _SEMANTIC_MODEL.encode(template, convert_to_tensor=True)
-        emb_agent = _SEMANTIC_MODEL.encode(agent_text[-512:], convert_to_tensor=True)
-        score = float(util.cos_sim(emb_template, emb_agent)[0][0].clamp(0, 1))
+    matched = sum(1 for sig in signals if sig in agent_text)
+    score = min(matched / max(len(signals) * 0.4, 1), 1.0)
 
     # Escalation tasks: ESCALATE is the correct resolution
     if expected.startswith("escalated_to") and action.action_type == ActionType.ESCALATE:
         if action.reason:
-            reason_lower = action.reason.lower()
-            urgency_words = ["sla", "critical", "outage", "urgent", "emergency", "breach", "down", "p0", "p1"]
-            if any(w in reason_lower for w in urgency_words):
+            urgency_words = [
+                "sla", "critical", "outage", "urgent", "emergency",
+                "breach", "down", "p0", "p1", "incident",
+            ]
+            if any(w in action.reason.lower() for w in urgency_words):
                 return min(score + 0.5, 1.0)
         return max(score, 0.3)
 
-    # For non-escalation tasks: penalize escalation
-    if expected not in ("escalated_to_engineering", "escalated_to_security") and action.action_type == ActionType.ESCALATE:
+    # Penalize escalation on non-escalation tasks
+    if expected not in ("escalated_to_engineering", "escalated_to_security") \
+            and action.action_type == ActionType.ESCALATE:
         return max(score - 0.4, 0.0)
 
     return score
@@ -142,10 +161,7 @@ def compute_efficiency_score(steps_used: int, max_steps: int) -> float:
 
 
 def compute_accuracy_score(history: List[Message], ticket: dict) -> float:
-    """
-    Checks whether the agent gathered all required_info_before_close
-    items from the conversation. Returns fraction gathered.
-    """
+    """Fraction of required_info_before_close items found in conversation."""
     required: List[str] = ticket.get("required_info_before_close", [])
     if not required:
         return 1.0
@@ -157,7 +173,6 @@ def compute_accuracy_score(history: List[Message], ticket: dict) -> float:
         if pattern and pattern.search(all_text):
             gathered += 1
         elif info_type not in _INFO_PATTERNS:
-            # Unknown info type — assume gathered if customer sent follow-up
             customer_msgs = [m for m in history if m.role == "customer"]
             if len(customer_msgs) > 1:
                 gathered += 1
@@ -166,24 +181,22 @@ def compute_accuracy_score(history: List[Message], ticket: dict) -> float:
 
 
 def compute_escalation_penalty(action: Action, ticket: dict) -> float:
-    """
-    -0.3 if agent escalates a low or medium priority ticket
-    (those should be self-resolved).
-    """
+    """-0.3 if agent escalates a low or medium priority ticket."""
     if action.action_type != ActionType.ESCALATE:
         return 0.0
     if ticket.get("priority") in ("low", "medium"):
         return -0.3
     return 0.0
 
+
 def compute_contradiction_penalty(action: Action, history: List[Message]) -> float:
-    """Penalize if agent claims completion then asks for info already provided."""
+    """Penalize agent for claiming resolution then asking for info already provided."""
     agent_msgs = [m.content.lower() for m in history if m.role == "agent"]
-    if len(agent_msgs) < 2: 
+    if len(agent_msgs) < 2:
         return 0.0
     completion_claims = ["processed", "resolved", "fixed", "refund", "restored"]
     info_request_words = ["could you provide", "can you share", "please give me", "what is your"]
-    last = action.message.lower() if action.message else ""
+    last = (action.message or "").lower()
     prev_claimed_done = any(w in " ".join(agent_msgs[-3:]) for w in completion_claims)
     now_asking_info = any(w in last for w in info_request_words)
     return -0.15 if (prev_claimed_done and now_asking_info) else 0.0
@@ -198,43 +211,31 @@ def compute_step_reward(
     is_terminal: bool,
 ) -> Reward:
     """
-    Compute the shaped reward for a single step.
-
+    Compute shaped reward for a single step.
     Weights: resolution=0.40, tone=0.20, efficiency=0.20, accuracy=0.20
-    Penalties applied before clamping.
-    Partial signals emitted every step — not sparse.
+    Penalties applied before clamping to [0.0, 1.0].
     """
-    # ── Tone (always available) ──────────────────────────────────
     tone_msg = action.message or action.reason or ""
     tone_score = compute_tone_score(tone_msg)
-
-    # ── Loop penalty (always checked) ───────────────────────────
     loop_penalty = compute_loop_penalty(history)
-    
-    # ── Contradiction penalty (always checked) ──────────────────
     contradiction_penalty = compute_contradiction_penalty(action, history)
 
-    # ── Terminal signals ─────────────────────────────────────────
     if is_terminal:
         resolution_score = compute_resolution_score(action, ticket, history)
         efficiency_score = compute_efficiency_score(steps_used, max_steps)
         accuracy_score = compute_accuracy_score(history, ticket)
         escalation_penalty = compute_escalation_penalty(action, ticket)
     else:
-        # Partial step: give small tone-based signal, no resolution yet
         resolution_score = 0.0
         efficiency_score = compute_efficiency_score(steps_used, max_steps) * 0.3
         accuracy_score = compute_accuracy_score(history, ticket) * 0.5
         escalation_penalty = 0.0
 
-    # ── REQUEST_INFO bonus ───────────────────────────────────────
     info_gathering_bonus = 0.0
     if action.action_type == ActionType.REQUEST_INFO:
-        required = ticket.get("required_info_before_close", [])
-        if required:
+        if ticket.get("required_info_before_close"):
             info_gathering_bonus = 0.1
 
-    # ── Composite reward ─────────────────────────────────────────
     raw = (
         0.40 * resolution_score
         + 0.20 * tone_score

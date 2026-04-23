@@ -148,10 +148,21 @@ def model_generate(
     completion_ids = output_ids[0, prompt_len:]
     completion_text = tokenizer.decode(completion_ids, skip_special_tokens=True)
 
-    # Compute log-probs for the generated tokens (used as old_log_probs)
-    log_probs = compute_log_probs(model, tokenizer, prompt, completion_text, device)
+    # Strip Qwen3 <think>...</think> blocks from the completion text.
+    # We train only on the final JSON action, not the chain-of-thought reasoning.
+    # Keeping think tokens would waste ~95% of the gradient on non-action text.
+    import re as _re
+    completion_for_training = _re.sub(
+        r"<think>[\s\S]*?</think>", "", completion_text, flags=_re.IGNORECASE
+    ).strip()
+    if not completion_for_training:
+        # Model only output a think block with no action — treat as empty
+        completion_for_training = completion_text
 
-    return completion_text, log_probs
+    # Compute log-probs for the generated tokens (used as old_log_probs)
+    log_probs = compute_log_probs(model, tokenizer, prompt, completion_for_training, device)
+
+    return completion_for_training, log_probs
 
 
 # ── Checkpointing ─────────────────────────────────────────────────────────────

@@ -68,8 +68,12 @@ def parse_action(
     if not text or not text.strip():
         return None, "empty output"
 
+    # Strip Qwen3 <think>...</think> reasoning blocks BEFORE any other processing.
+    # Qwen3 outputs chain-of-thought inside <think> tags that may themselves contain
+    # JSON-like fragments — we must remove the entire block or we'll parse the wrong JSON.
+    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
+
     # Strip markdown code fences
-    cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = "\n".join(
             line for line in cleaned.split("\n")

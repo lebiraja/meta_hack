@@ -9,7 +9,7 @@ from typing import Optional
 @dataclass
 class TrainConfig:
     # ── Model ──────────────────────────────────────────────────────────────────
-    model_name: str = "unsloth/Meta-Llama-3.1-8B-Instruct"
+    model_name: str = "unsloth/Qwen3-8B"
     max_seq_len: int = 4096
     lora_r: int = 16
     lora_alpha: int = 32

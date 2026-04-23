@@ -1,4 +1,5 @@
 services:
+  # ── Backend: FastAPI RL environment ─────────────────────────────
   env:
     build:
       context: .
@@ -17,6 +18,32 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  # ── Frontend: Next.js demo UI ────────────────────────────────────
+  # NEXT_PUBLIC_* vars are baked into the browser bundle at build time.
+  # The browser hits the backend at the HOST's port 7860 (via "localhost:7860"
+  # in docker-compose on a single machine).  Override API_URL with your
+  # server's hostname/IP when deploying remotely.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:7860}
+        - NEXT_PUBLIC_API_KEY=${NEXT_PUBLIC_API_KEY:-meta_hack_2026}
+    ports:
+      - "3000:3000"
+    environment:
+      # Server-side NVIDIA keys — never baked into the browser bundle
+      - NVIDIA_API_KEY_1=${NVIDIA_API_KEY_1:-}
+      - NVIDIA_API_KEY_2=${NVIDIA_API_KEY_2:-}
+      - NVIDIA_API_KEY_3=${NVIDIA_API_KEY_3:-}
+      - NVIDIA_MODEL=${MODEL_NAME:-meta/llama-3.3-70b-instruct}
+    depends_on:
+      env:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Inference agent (optional) ───────────────────────────────────
   inference:
     build:
       context: .

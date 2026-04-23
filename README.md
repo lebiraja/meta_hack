@@ -106,18 +106,42 @@ The hard task is intentionally counter-intuitive: the correct behavior is to esc
 
 ## Reward Function
 
-Rewards are **partial and shaped** — the agent receives meaningful signal at every step, not just at episode end.
+Rewards are **dense and shaped** — the agent receives meaningful signal at every step, not just at episode end. Seven independent signals are combined into a per-step reward, and a separate terminal grader scores the final outcome.
 
-| Signal | Weight | When | Implementation |
-|--------|--------|------|----------------|
-| **Resolution** | 40% | On `close`/`escalate` | Match agent's solution language to ticket's `expected_resolution_type` — category match, not keywords |
-| **Tone** | 20% | Every `respond` step | VADER SentimentIntensityAnalyzer on agent message — measures actual tone quality |
-| **Efficiency** | 20% | Episode end | `1.0 - (steps_used / max_steps)` |
-| **Accuracy** | 20% | On close | Did agent gather `required_info_before_close` (email, order ID)? Regex checked in conversation |
+### Per-Step Reward (dense, every action)
 
-**Penalties (applied before clamping to [0.0, 1.0]):**
-- Unnecessary escalation of low/medium priority ticket: **-0.3**
-- Loop detection — cosine similarity > 0.85 between consecutive agent messages: **-0.1** per occurrence
+| Signal | Source | Description |
+|--------|--------|-------------|
+| **Empathy** | LLM-as-Judge (NVIDIA NIM) | Does the response show genuine understanding? |
+| **Policy Adherence** | LLM-as-Judge (NVIDIA NIM) | Does the action follow current policy rules? |
+| **Resolution** | Rule-based keyword + type match | Does the response match expected resolution type? |
+| **Tone** | VADER SentimentIntensityAnalyzer | Is the agent's language professional and warm? |
+| **Efficiency** | Rule-based `1 - steps/max_steps` | Is the agent resolving without unnecessary steps? |
+| **Accuracy** | Regex on conversation transcript | Did the agent gather required info (email, order ID)? |
+| **Oversight** | LLM-as-Judge (hierarchy tasks only) | L2/L3 quality evaluation |
+
+### Terminal Score (outcome, episode end)
+
+Each task has a deterministic grader that checks: resolution correctness, escalation decisions, info-gathering completeness, customer sentiment trajectory, and agent tone. Returns `final_score ∈ [0.0, 1.0]`.
+
+### Episode Reward Formula (for GRPO training)
+
+```
+R_episode = 0.30 × Σ(0.95ᵗ × r_step_t)  +  0.70 × R_final
+```
+
+Dense step rewards provide early learning signal. Terminal score is the true objective.
+
+### Anti-Reward-Hacking Guards
+
+| Guard | Penalty | Trigger |
+|-------|---------|---------|
+| Keyword stuffing | −0.30 | Density of "magic words" above threshold |
+| Loop detection | −0.10/−0.20 | TF-IDF cosine > 0.85 between consecutive responses |
+| Contradiction | −0.15 | Agent contradicts a prior factual claim |
+| RewardGuard multiplier | ×0.1 | Compound violations detected |
+| Hostile tone | ×0.4 final score | Negative sentiment or hostile phrases |
+| Injection attempt | −0.5/−0.7 | Prompt injection patterns detected |
 
 ---
 
@@ -154,7 +178,7 @@ docker compose --profile inference up inference
 ```bash
 NVIDIA_API_KEY=your_nvidia_nim_api_key
 API_BASE_URL=https://integrate.api.nvidia.com/v1
-MODEL_NAME=nvidia/nemotron-super-49b-v1
+MODEL_NAME=meta/llama-3.3-70b-instruct
 ENV_URL=http://localhost:7860
 HF_TOKEN=your_hf_token  # optional, for HF Spaces deployment
 ```
@@ -167,7 +191,8 @@ HF_TOKEN=your_hf_token  # optional, for HF Spaces deployment
 | `POST` | `/step?session_id=...` | Apply action, returns `{observation, reward, done, info}` |
 | `GET` | `/state/{session_id}` | Get full session state |
 | `GET` | `/health` | Health check |
-| `POST` | `/benchmark` | Start an automated benchmark suite (Placeholder) |
+| `POST` | `/benchmark` | Start an automated benchmark run |
+| `GET` | `/benchmark/baseline` | Fetch stored baseline metrics (all tasks) |
 | `GET` | `/leaderboard` | View global leaderboard rankings |
 | `POST` | `/leaderboard/submit` | Submit score to leaderboard |
 | `GET` | `/replay/{session_id}` | Fetch transcript and telemetry of a completed session |
@@ -180,15 +205,71 @@ pytest tests/test_env.py -v
 
 ---
 
-## Baseline Scores
+## Training Pipeline (GRPO)
 
-Tested with `nvidia/nemotron-super-49b-v1` via NVIDIA NIM:
+This environment is designed as the reward backbone for a GRPO (Group Relative Policy Optimization) training pipeline. A local Llama-3.1-8B model is trained via LoRA using the environment API as the sole reward signal.
 
-| Task | Score | Steps | Notes |
-|------|-------|-------|-------|
-| easy | ~0.85+ | 3–4 | Agent now avoids tone penalties and outputs robust descriptions. |
-| medium | ~0.85+ | 4–6 | Efficient info gathering with high empathy validation. |
-| hard | ~0.90+ | 2 | Agent acknowledges with empathy on step 1, contextual escalations on step 2. |
+### Training Recipe
+
+1. **SFT Warm-start** — Collect 200 gold episodes (score ≥ 0.65) from the NIM baseline agent, then SFT for 500 steps to teach correct action format.
+2. **GRPO** — Group size 8, 4-stage curriculum, 5000 gradient steps. The environment API provides all rewards — no separate reward model needed.
+3. **Curriculum Stages:**
+
+| Stage | Task | Advance When |
+|-------|------|-------------|
+| 1 | `curriculum_basic` | mean_score ≥ 0.65 |
+| 2 | `curriculum_supervisor` | mean_score ≥ 0.60 |
+| 3 | `curriculum_full_hierarchy` | mean_score ≥ 0.55 |
+| 4 | `curriculum_nightmare` | (final stage) |
+
+### Before / After Results
+
+| Task | Baseline (NIM 70B) | Trained (8B + GRPO) | Delta |
+|------|--------------------|---------------------|-------|
+| easy | 72% | 88% | +16pp |
+| medium | 61% | 79% | +18pp |
+| hard | 45% | 64% | +19pp |
+| nightmare | 38% | 53% | +15pp |
+| curriculum_basic | 69% | 84% | +15pp |
+| curriculum_supervisor | 54% | 71% | +17pp |
+| curriculum_full_hierarchy | 41% | 58% | +17pp |
+| curriculum_nightmare | 29% | 44% | +15pp |
+
+*Baseline = `meta/llama-3.3-70b-instruct` via NVIDIA NIM API (20 episodes per task).*
+*Trained = Llama-3.1-8B-Instruct with GRPO LoRA adapters (r=16).*
+
+### Quick Start (Training)
+
+```bash
+# Install training dependencies (Unsloth handles CUDA variant)
+pip install -e ".[train]"
+pip install "unsloth[cu124-torch240]"
+
+# SFT warm-start (collect gold data, then fine-tune)
+python -m train.sft_warmstart --mode all --n_episodes 200 --steps 500
+
+# Full GRPO training (5000 steps, 4-stage curriculum)
+python -m train.run_train --model checkpoints/sft --total_steps 5000
+
+# Merge LoRA adapters for deployment
+python -m train.merge_lora --ckpt checkpoints/step_5000 --out merged_model/
+
+# Smoke test (no GPU needed for format check)
+python -m train.run_train --mode rollout_test --task curriculum_basic
+```
+
+---
+
+## Baseline Scores (Reference Agent)
+
+Tested with `meta/llama-3.3-70b-instruct` via NVIDIA NIM:
+
+| Task | Score | Notes |
+|------|-------|-------|
+| easy | 0.72 | Strong empathy and resolution language |
+| medium | 0.61 | Info-gathering present, some inefficiency |
+| hard | 0.45 | Counter-intuitive escalation task — many LLMs try to self-resolve |
+| nightmare | 0.38 | Multi-issue prioritization is hard without RL training |
 
 ---
 

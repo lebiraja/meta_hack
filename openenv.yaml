@@ -1,39 +1,153 @@
 name: customer-support-env
-version: "1.0.0"
+version: "2.1.0"
 description: >
-  Real-world OpenEnv RL environment for AI customer support agent training.
-  An agent resolves support tickets across three difficulty levels with
-  partial reward signals measuring resolution quality, tone, efficiency,
-  and accuracy. Designed to train agents that genuinely help customers —
-  not keyword-stuff responses.
+  Hierarchical multi-agent RL environment for AI customer support training.
+  Features a 3-level agent hierarchy (Support Agent → Supervisor → Manager),
+  LLM-driven customer simulator with Hinglish support, dynamic policy drift,
+  hybrid dense rewards (rule-based + LLM-as-Judge), and a progressive
+  4-stage curriculum that systematically increases complexity for RL training.
+  Backward compatible with Round 1 single-agent tasks.
 author: Team X-Force
+curriculum:
+  description: >
+    Progressive 4-stage curriculum designed for RL training. Easy tasks provide
+    dense initial rewards so models learn basic behavior. Each subsequent level
+    introduces new agents, mechanisms, and challenges. Agents trained on lower
+    levels transfer skills upward — empathy from L1-only → oversight from L2 →
+    coordination from full hierarchy → adversarial resilience from nightmare.
+  stages:
+    - stage: 1
+      task: curriculum_basic
+      objective: "Learn empathy, info-gathering, and resolution fundamentals"
+    - stage: 2
+      task: curriculum_supervisor
+      objective: "Learn to accept feedback and improve actions iteratively"
+    - stage: 3
+      task: curriculum_full_hierarchy
+      objective: "Coordinate across all 3 levels under policy drift"
+    - stage: 4
+      task: curriculum_nightmare
+      objective: "Handle extreme adversarial conditions with Hinglish, multi-drift, and high frustration"
 tasks:
+  # ── Round 1: Single-agent tasks (backward compatible) ──────────────────────
   - name: easy
     description: Single-turn FAQ resolution (billing — refunds, double charges, invoice errors)
     max_steps: 5
+    difficulty: 1
   - name: medium
     description: Multi-turn complaint handling (technical and account issues requiring info gathering)
     max_steps: 8
+    difficulty: 2
   - name: hard
     description: SLA-critical escalation triage (enterprise outages, security incidents — agent must escalate within 2 steps)
     max_steps: 10
+    difficulty: 3
   - name: nightmare
     description: Multi-issue tickets requiring prioritisation (e.g. Account locked AND unauthorized charge)
     max_steps: 12
+    difficulty: 4
+  # ── Round 2: Hierarchical multi-agent tasks ─────────────────────────────────
+  - name: hierarchy_easy
+    description: >
+      Hierarchical: Support Agent handles billing FAQ. Supervisor reviews and
+      approves. No manager needed. Tests basic hierarchy flow.
+    max_steps: 8
+    difficulty: 2
+  - name: hierarchy_medium
+    description: >
+      Hierarchical: Support Agent handles technical issue. Supervisor may
+      give feedback or request corrections. Mid-episode policy drift possible.
+      Tests supervisor oversight quality and agent adaptability.
+    max_steps: 12
+    difficulty: 3
+  - name: hierarchy_hard
+    description: >
+      Hierarchical: Critical SLA breach requiring all 3 levels. Support Agent
+      must recognize urgency, Supervisor must escalate to Manager, Manager
+      makes final decision. Schema drift guaranteed. Indian enterprise context.
+    max_steps: 15
+    difficulty: 4
+  # ── Round 2: Progressive Curriculum Tasks ───────────────────────────────────
+  - name: curriculum_basic
+    description: >
+      Stage 1/4 — Support Agent Only. Simple UPI billing queries (₹499 plan,
+      GST invoices). No supervisor, no drift, no Hinglish. Customer is polite.
+      Goal: learn empathy, info-gathering, and clean resolution in 5 steps.
+      Dense rewards ensure the model gets positive signal from day one.
+    max_steps: 6
+    difficulty: 1
+    active_levels: [1]
+    drift_probability: 0.0
+    initial_frustration: 0.0
+    hinglish_enabled: false
+  - name: curriculum_supervisor
+    description: >
+      Stage 2/4 — Support Agent + Supervisor. Medium-priority technical issues
+      (payment gateway timeouts, KYC document rejections). Supervisor reviews
+      every L1 action, may give feedback requiring L1 to adjust. No manager.
+      Low drift probability (20%). Customer may be impatient.
+      Goal: learn to incorporate feedback and iterate on responses.
+    max_steps: 10
+    difficulty: 2
+    active_levels: [1, 2]
+    drift_probability: 0.2
+    initial_frustration: 0.2
+    hinglish_enabled: false
+  - name: curriculum_full_hierarchy
+    description: >
+      Stage 3/4 — Full 3-Level Hierarchy. High-priority SLA-critical incidents
+      (unauthorized ₹2.5L transactions, production API outages at 10K RPM).
+      All three levels must coordinate: L1 recognizes urgency, L2 evaluates and
+      escalates, L3 makes authoritative resolution. Policy drift guaranteed.
+      Customer persona is impatient. Indian enterprise context throughout.
+      Goal: learn multi-agent coordination and policy-adaptive behavior.
+    max_steps: 14
+    difficulty: 3
+    active_levels: [1, 2, 3]
+    drift_probability: 0.8
+    initial_frustration: 0.4
+    hinglish_enabled: false
+  - name: curriculum_nightmare
+    description: >
+      Stage 4/4 — Extreme Adversarial. Multiple simultaneous crises (Diwali
+      sale meltdown: payment gateway down + inventory sync broken + CEO
+      escalation). Customer starts at high frustration and degrades into
+      Hinglish. Multiple policy drifts guaranteed. Requires all 3 levels,
+      rapid escalation, and adaptive behavior under changing constraints.
+      Rewards are sparse and penalties are harsh — only well-trained agents
+      from stages 1-3 can reliably score above 0.5 here.
+      Goal: test adversarial resilience, Hinglish comprehension, multi-drift
+      adaptation, and full hierarchy under extreme pressure.
+    max_steps: 18
+    difficulty: 4
+    active_levels: [1, 2, 3]
+    drift_probability: 1.0
+    initial_frustration: 0.7
+    hinglish_enabled: true
 action_space:
   type: ActionType
   values:
+    # L1 Support Agent
     - respond
     - escalate
     - close
     - request_info
+    # L2 Supervisor
+    - supervisor_approve
+    - supervisor_reject
+    - supervisor_feedback
+    - supervisor_escalate
+    # L3 Manager
+    - manager_override
+    - manager_resolve
+    - manager_send_back
 observation_space:
   session_id: string
   ticket_id: string
   category: string
   priority: "low | medium | high | critical"
   subject: string
-  conversation_history: "list[{role: customer|agent, content: string}]"
+  conversation_history: "list[{role: customer|agent|supervisor|manager|system, content: string}]"
   customer_sentiment: "float in [-1.0, 1.0]"
   mood_trajectory: "list[float]"
   unresolved_issues: "list[string]"
@@ -41,23 +155,50 @@ observation_space:
   max_steps: int
   is_done: bool
   task: string
+  # Hierarchy fields (Round 2)
+  active_role: "support_agent | supervisor | manager"
+  supervisor_feedback: "string | null"
+  manager_directive: "string | null"
+  environment_event: "string | null"
+  policy_context: string
+  escalation_chain: "list[string]"
+  hierarchy_state:
+    support_agent_actions: int
+    supervisor_reviews: int
+    manager_interventions: int
+    current_phase: string
+    escalation_reason: "string | null"
 reward_range: [0.0, 1.0]
 reward_signals:
+  # Single-agent mode
   resolution: 0.40
   tone: 0.20
   efficiency: 0.20
   accuracy: 0.20
+  # Hierarchy mode (additional)
+  empathy: "LLM-as-Judge"
+  policy_adherence: "LLM-as-Judge"
+  oversight_quality: "LLM-as-Judge"
+  decision_quality: "LLM-as-Judge"
+  hierarchy_effectiveness: "Rule-based"
+  sla_compliance: "Rule-based"
 tags:
   - customer-support
+  - multi-agent
+  - hierarchical
   - nlp
   - multi-turn
   - real-world
   - rl-environment
   - openenv
-  - pytorch
+  - llm-as-judge
+  - indian-enterprise
+  - hinglish
+  - policy-drift
+  - progressive-curriculum
   - meta-hackathon
 endpoints:
-  reset: "POST /reset?task={easy|medium|hard|nightmare}"
+  reset: "POST /reset?task={task_name}"
   step: "POST /step?session_id={id}"
   state: "GET /state/{session_id}"
   health: "GET /health"

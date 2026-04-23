@@ -226,4 +226,6 @@ class Ticket(BaseModel):
     ideal_max_steps: int
     customer_persona: Literal["impatient", "polite", "confused"]
     task: Literal["easy", "medium", "hard", "nightmare",
-                  "hierarchy_easy", "hierarchy_medium", "hierarchy_hard"]
+                  "hierarchy_easy", "hierarchy_medium", "hierarchy_hard",
+                  "curriculum_basic", "curriculum_supervisor",
+                  "curriculum_full_hierarchy", "curriculum_nightmare"]

@@ -39,6 +39,13 @@ def hierarchy_env():
     env.reset()
     return env
 
+@pytest.fixture
+def hierarchy_hard_env():
+    """Fixture for tests needing all 3 levels (L1 + L2 + L3)."""
+    env = HierarchicalCustomerSupportEnv(task="hierarchy_hard")
+    env.reset()
+    return env
+
 # ── reset() tests ──────────────────────────────────────────────────────────────
 
 def test_reset_returns_observation(easy_env):
@@ -274,31 +281,31 @@ def test_hierarchy_supervisor_feedback_returns_to_l1(hierarchy_env):
     assert obs.active_role == "support_agent"
     assert obs.supervisor_feedback == "Add more empathy and reference the specific issue."
 
-def test_hierarchy_supervisor_escalate_to_manager(hierarchy_env):
+def test_hierarchy_supervisor_escalate_to_manager(hierarchy_hard_env):
     a1 = Action(action_type=ActionType.RESPOND, message="I see this is urgent.")
-    hierarchy_env.step(a1)
+    hierarchy_hard_env.step(a1)
     a2 = Action(action_type=ActionType.SUPERVISOR_ESCALATE, reason="Critical SLA breach needs manager.")
-    obs, reward, done, info = hierarchy_env.step(a2)
+    obs, reward, done, info = hierarchy_hard_env.step(a2)
     assert obs.active_role == "manager"
     assert obs.hierarchy_state.current_phase == "manager_override"
 
-def test_hierarchy_manager_resolve_ends_episode(hierarchy_env):
+def test_hierarchy_manager_resolve_ends_episode(hierarchy_hard_env):
     a1 = Action(action_type=ActionType.RESPOND, message="I see this is urgent.")
-    hierarchy_env.step(a1)
+    hierarchy_hard_env.step(a1)
     a2 = Action(action_type=ActionType.SUPERVISOR_ESCALATE, reason="Complex case needs manager.")
-    hierarchy_env.step(a2)
+    hierarchy_hard_env.step(a2)
     a3 = Action(action_type=ActionType.MANAGER_RESOLVE, message="I am escalating to engineering team immediately.")
-    obs, reward, done, info = hierarchy_env.step(a3)
+    obs, reward, done, info = hierarchy_hard_env.step(a3)
     assert done
     assert obs.is_done
 
-def test_hierarchy_manager_send_back(hierarchy_env):
+def test_hierarchy_manager_send_back(hierarchy_hard_env):
     a1 = Action(action_type=ActionType.RESPOND, message="I see this issue.")
-    hierarchy_env.step(a1)
+    hierarchy_hard_env.step(a1)
     a2 = Action(action_type=ActionType.SUPERVISOR_ESCALATE, reason="Needs manager review.")
-    hierarchy_env.step(a2)
+    hierarchy_hard_env.step(a2)
     a3 = Action(action_type=ActionType.MANAGER_SEND_BACK, feedback_to_agent="Offer refund and close.")
-    obs, reward, done, info = hierarchy_env.step(a3)
+    obs, reward, done, info = hierarchy_hard_env.step(a3)
     assert not done
     assert obs.active_role == "support_agent"
     assert obs.manager_directive == "Offer refund and close."
@@ -373,7 +380,7 @@ def test_e2e_root(client):
     r = client.get("/")
     assert r.status_code == 200
     assert r.json()["name"] == "CustomerSupportEnv"
-    assert r.json()["version"] == "2.0.0"
+    assert r.json()["version"] == "2.1.0"
 
 def test_e2e_health(client):
     r = client.get("/health")
@@ -515,6 +522,181 @@ def test_e2e_session_cap(client):
     _sessions.clear()
 
 def test_e2e_all_tasks_smoke(client):
-    for task in ["easy", "medium", "hard", "hierarchy_easy", "hierarchy_medium", "hierarchy_hard"]:
+    for task in ["easy", "medium", "hard",
+                 "hierarchy_easy", "hierarchy_medium", "hierarchy_hard",
+                 "curriculum_basic", "curriculum_supervisor",
+                 "curriculum_full_hierarchy", "curriculum_nightmare"]:
         r = client.post(f"/reset?task={task}")
         assert r.status_code == 200, f"Reset failed for {task}"
+
+
+# ── Curriculum tests ───────────────────────────────────────────────────────────
+
+class TestCurriculumBasic:
+    """Stage 1: L1-only, no supervisor, no drift."""
+
+    def test_basic_l1_only_flow(self):
+        env = HierarchicalCustomerSupportEnv(task="curriculum_basic")
+        obs = env.reset()
+        assert obs.active_role == "support_agent"
+        assert obs.max_steps == 6
+
+        # L1 responds — should NOT switch to supervisor
+        a = Action(action_type="respond", message="I see the billing issue. Let me check.")
+        obs2, r, done, _ = env.step(a)
+        assert obs2.active_role == "support_agent"  # Still L1, no L2 review!
+        assert not done
+
+        # L1 closes directly
+        a2 = Action(action_type="close", message="Refund of ₹499 processed. 3-5 business days.")
+        obs3, r2, done2, _ = env.step(a2)
+        assert done2
+
+    def test_basic_no_drift(self):
+        from env.environment import TASK_CONFIG
+        cfg = TASK_CONFIG["curriculum_basic"]
+        assert cfg["drift_probability"] == 0.0
+        assert cfg["active_levels"] == [1]
+        assert cfg["hinglish_enabled"] is False
+
+    def test_basic_grader(self):
+        from env.graders.task_curriculum_basic import grade
+        state = {
+            "action_log": [
+                {"step": 1, "action_type": "respond", "message": "I understand your concern about the billing. Let me help."},
+                {"step": 2, "action_type": "close", "message": "Refund processed to your account."},
+            ],
+            "ticket": {"expected_resolution_type": "refund_initiated"},
+            "history": [
+                {"role": "customer", "content": "I was charged twice for ₹499"},
+                {"role": "agent", "content": "I understand your concern about the billing. Let me help you with that refund immediately."},
+                {"role": "agent", "content": "Refund of ₹499 has been processed to your account. Sorry for the inconvenience."},
+            ],
+        }
+        score = grade(state)
+        assert score > 0.5, f"Basic grader too harsh: {score}"
+
+
+class TestCurriculumSupervisor:
+    """Stage 2: L1 + L2, feedback loops."""
+
+    def test_supervisor_feedback_loop(self):
+        env = HierarchicalCustomerSupportEnv(task="curriculum_supervisor")
+        obs = env.reset()
+        assert obs.max_steps == 10
+        assert obs.active_role == "support_agent"
+
+        # L1 responds
+        a = Action(action_type="respond", message="Let me check your payment gateway timeout.")
+        obs2, _, _, _ = env.step(a)
+        assert obs2.active_role == "supervisor"  # L2 should review
+
+        # L2 gives feedback
+        a2 = Action(action_type="supervisor_feedback",
+                     feedback_to_agent="Ask for their order ID and UPI transaction reference.")
+        obs3, _, _, _ = env.step(a2)
+        assert obs3.active_role == "support_agent"  # Back to L1
+        assert obs3.supervisor_feedback is not None
+
+    def test_supervisor_no_manager(self):
+        """L3 should not be accessible in Stage 2."""
+        from env.environment import TASK_CONFIG
+        cfg = TASK_CONFIG["curriculum_supervisor"]
+        assert 3 not in cfg["active_levels"]
+        assert cfg["active_levels"] == [1, 2]
+
+
+class TestCurriculumFullHierarchy:
+    """Stage 3: Full 3-level coordination."""
+
+    def test_full_hierarchy_all_levels(self):
+        env = HierarchicalCustomerSupportEnv(task="curriculum_full_hierarchy")
+        obs = env.reset()
+        assert obs.max_steps == 14
+
+        # L1 responds
+        a = Action(action_type="respond", message="This is a critical SLA breach. Flagging now.")
+        obs2, _, _, _ = env.step(a)
+        assert obs2.active_role == "supervisor"
+
+        # L2 escalates to L3
+        a2 = Action(action_type="supervisor_escalate", reason="Critical SLA breach needs manager override.")
+        obs3, _, _, _ = env.step(a2)
+        assert obs3.active_role == "manager"
+
+        # L3 resolves
+        a3 = Action(action_type="manager_resolve",
+                     message="Authorized emergency engineering escalation. All affected transactions frozen.")
+        _, r, done, _ = env.step(a3)
+        assert done
+        assert r.role_rewards.get("manager", 0) > 0
+
+    def test_full_hierarchy_config(self):
+        from env.environment import TASK_CONFIG
+        cfg = TASK_CONFIG["curriculum_full_hierarchy"]
+        assert cfg["active_levels"] == [1, 2, 3]
+        assert cfg["drift_probability"] == 0.8
+
+
+class TestCurriculumNightmare:
+    """Stage 4: Extreme adversarial conditions."""
+
+    def test_nightmare_config(self):
+        from env.environment import TASK_CONFIG
+        cfg = TASK_CONFIG["curriculum_nightmare"]
+        assert cfg["max_steps"] == 18
+        assert cfg["active_levels"] == [1, 2, 3]
+        assert cfg["drift_probability"] == 1.0
+        assert cfg["hinglish_enabled"] is True
+        assert cfg["multi_drift"] is True
+        assert cfg["initial_frustration"] == 0.7
+
+    def test_nightmare_multi_drift(self):
+        """PolicyEngine should schedule multiple drift events."""
+        from env.policy_engine import PolicyEngine
+        import random
+        random.seed(7)
+        pe = PolicyEngine(
+            task="curriculum_nightmare",
+            category="billing",
+            drift_probability=1.0,
+            multi_drift=True,
+        )
+        # Should have scheduled multiple events
+        assert len(pe._scheduled_events) >= 2, \
+            f"Expected >=2 scheduled events, got {len(pe._scheduled_events)}"
+
+    def test_nightmare_initial_frustration(self):
+        env = HierarchicalCustomerSupportEnv(task="curriculum_nightmare")
+        obs = env.reset()
+        # Sentiment starts negative (high frustration)
+        assert obs.customer_sentiment < 0, \
+            f"Expected negative sentiment, got {obs.customer_sentiment}"
+
+    def test_nightmare_grader(self):
+        from env.graders.task_curriculum_nightmare import grade
+        state = {
+            "action_log": [
+                {"step": 1, "role": "support_agent", "action_type": "respond",
+                 "message": "This is a critical emergency. Escalating immediately to supervisor."},
+                {"step": 2, "role": "supervisor", "action_type": "supervisor_escalate",
+                 "reason": "Diwali sale meltdown — payment gateway down, critical SLA breach, needs manager authorization."},
+                {"step": 3, "role": "manager", "action_type": "manager_resolve",
+                 "message": "I am authorizing emergency shutdown of the failing gateway and switching to backup payment processor. All pending Diwali sale transactions will be preserved."},
+            ],
+            "ticket": {"subject": "Diwali sale payment gateway meltdown"},
+            "history": [
+                {"role": "customer", "content": "Yaar ye kya ho raha hai, payment nahi ho raha Diwali sale mein!"},
+                {"role": "agent", "content": "I understand this is extremely urgent with the Diwali sale. I am escalating this immediately to our supervisor for priority handling."},
+                {"role": "system", "content": "[SYSTEM ALERT] Payment gateway provider A is down. Do NOT process any new UPI payments."},
+                {"role": "supervisor", "content": "[SUPERVISOR] Critical SLA breach — payment gateway down during festive sale. Escalating to manager."},
+                {"role": "manager", "content": "[MANAGER] I am authorizing emergency shutdown of the failing gateway and switching to backup payment processor. All pending Diwali sale transactions will be preserved and retried within 30 minutes."},
+                {"role": "customer", "content": "Arey bhai thank you, at least someone is doing something."},
+            ],
+            "hierarchy_state": {"supervisor_reviews": 1, "manager_interventions": 1,
+                                "supervisor_feedback_history": [], "manager_directive_history": []},
+            "sentiment": -0.3,
+        }
+        score = grade(state)
+        assert score > 0.5, f"Nightmare grader too harsh on good scenario: {score}"
+

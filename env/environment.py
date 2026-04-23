@@ -18,14 +18,53 @@ from env.customer_simulator import get_customer_simulator
 from env.policy_engine import PolicyEngine
 
 # ── Task config ────────────────────────────────────────────────────────────────
+# Each task specifies:
+#   max_steps         — episode length
+#   hierarchical      — whether HierarchicalCustomerSupportEnv is used
+#   active_levels     — which agent levels are active (1=L1, 2=L2, 3=L3)
+#   drift_probability — chance of mid-episode policy drift
+#   initial_frustration — starting customer frustration (0.0 = calm, 1.0 = furious)
+#   hinglish_enabled  — whether Hinglish degradation can trigger
+#   multi_drift       — allow >1 drift events in a single episode
+#   ticket_pool       — which ticket pool to draw from in ticket_store
+
 TASK_CONFIG = {
-    "easy":   {"max_steps": 5,  "hierarchical": False},
-    "medium": {"max_steps": 8,  "hierarchical": False},
-    "hard":   {"max_steps": 10, "hierarchical": False},
-    "nightmare": {"max_steps": 12, "hierarchical": False},
-    "hierarchy_easy":   {"max_steps": 8,  "hierarchical": True},
-    "hierarchy_medium": {"max_steps": 12, "hierarchical": True},
-    "hierarchy_hard":   {"max_steps": 15, "hierarchical": True},
+    # ── Round 1: Single-agent (backward compat) ───────────────────────────────
+    "easy":      {"max_steps": 5,  "hierarchical": False, "active_levels": [1],
+                  "drift_probability": 0.0, "initial_frustration": 0.0,
+                  "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "easy"},
+    "medium":    {"max_steps": 8,  "hierarchical": False, "active_levels": [1],
+                  "drift_probability": 0.0, "initial_frustration": 0.1,
+                  "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "medium"},
+    "hard":      {"max_steps": 10, "hierarchical": False, "active_levels": [1],
+                  "drift_probability": 0.0, "initial_frustration": 0.2,
+                  "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "hard"},
+    "nightmare": {"max_steps": 12, "hierarchical": False, "active_levels": [1],
+                  "drift_probability": 0.0, "initial_frustration": 0.3,
+                  "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "nightmare"},
+    # ── Round 2: Hierarchical tasks ───────────────────────────────────────────
+    "hierarchy_easy":   {"max_steps": 8,  "hierarchical": True, "active_levels": [1, 2],
+                         "drift_probability": 0.3, "initial_frustration": 0.1,
+                         "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "easy"},
+    "hierarchy_medium": {"max_steps": 12, "hierarchical": True, "active_levels": [1, 2],
+                         "drift_probability": 0.5, "initial_frustration": 0.2,
+                         "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "medium"},
+    "hierarchy_hard":   {"max_steps": 15, "hierarchical": True, "active_levels": [1, 2, 3],
+                         "drift_probability": 0.8, "initial_frustration": 0.3,
+                         "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "hard"},
+    # ── Round 2: Progressive Curriculum ───────────────────────────────────────
+    "curriculum_basic":          {"max_steps": 6,  "hierarchical": True, "active_levels": [1],
+                                  "drift_probability": 0.0, "initial_frustration": 0.0,
+                                  "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "easy"},
+    "curriculum_supervisor":     {"max_steps": 10, "hierarchical": True, "active_levels": [1, 2],
+                                  "drift_probability": 0.2, "initial_frustration": 0.2,
+                                  "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "medium"},
+    "curriculum_full_hierarchy": {"max_steps": 14, "hierarchical": True, "active_levels": [1, 2, 3],
+                                  "drift_probability": 0.8, "initial_frustration": 0.4,
+                                  "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "hard"},
+    "curriculum_nightmare":      {"max_steps": 18, "hierarchical": True, "active_levels": [1, 2, 3],
+                                  "drift_probability": 1.0, "initial_frustration": 0.7,
+                                  "hinglish_enabled": True, "multi_drift": True, "ticket_pool": "nightmare"},
 }
 
 # ── Legacy follow-ups (fallback for single-agent mode) ─────────────────────────
@@ -101,15 +140,12 @@ class CustomerSupportEnv:
         self._is_hierarchical = TASK_CONFIG[task].get("hierarchical", False)
 
     def reset(self) -> Observation:
-        task_for_store = self.task
-        if self.task.startswith("hierarchy_"):
-            base = self.task.replace("hierarchy_", "")
-            mapping = {"easy": "easy", "medium": "medium", "hard": "hard"}
-            task_for_store = mapping.get(base, "medium")
-        self._ticket = ticket_store.get_random_by_task(task_for_store)
+        cfg = TASK_CONFIG[self.task]
+        ticket_pool = cfg.get("ticket_pool", self.task)
+        self._ticket = ticket_store.get_random_by_task(ticket_pool)
         self._history = [Message(role="customer", content=self._ticket["opening_message"])]
         self._step = 0
-        self._sentiment = 0.0
+        self._sentiment = -cfg.get("initial_frustration", 0.0)  # negative = customer unhappy
         self._sentiment_history = []
         self._done = False
         self._action_log = []
@@ -263,11 +299,16 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
     def reset(self) -> Observation:
         obs = super().reset()
         assert self._ticket is not None
+        cfg = TASK_CONFIG[self.task]
+        self._active_levels: List[int] = cfg.get("active_levels", [1, 2, 3])
+        self._hinglish_enabled: bool = cfg.get("hinglish_enabled", False)
+        self._multi_drift: bool = cfg.get("multi_drift", False)
         self._hierarchy = HierarchyState()
         self._policy_engine = PolicyEngine(
             task=self.task,
             category=self._ticket.get("category", "billing"),
-            drift_probability=0.5 if "hard" in self.task else 0.3,
+            drift_probability=cfg.get("drift_probability", 0.3),
+            multi_drift=self._multi_drift,
         )
         self._pending_l1_action = None
         self._active_role = AgentRole.SUPPORT_AGENT
@@ -338,7 +379,21 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             "reward": reward.value,
         })
 
-        # Switch to supervisor for review
+        # ── Curriculum: Skip supervisor if L2 not in active_levels ─────────
+        if 2 not in self._active_levels:
+            # L1-only mode (curriculum_basic): auto-approve, deliver to customer
+            if is_terminal_intent:
+                self._done = True
+            elif not self._done:
+                customer_reply = self._simulate_customer_reply(action)
+                self._history.append(Message(role="customer", content=customer_reply))
+            self._pending_l1_action = None
+            self._hierarchy.pending_l1_action = None
+            obs = self._build_observation()
+            info = {"ticket_id": self._ticket["id"], "action_log": self._action_log, "error": None}
+            return obs, reward, self._done, info
+
+        # Normal hierarchy: switch to supervisor for review
         self._active_role = AgentRole.SUPERVISOR
         self._hierarchy.current_phase = "supervisor_review"
 
@@ -400,13 +455,21 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             self._hierarchy.pending_l1_action = None
 
         elif at == ActionType.SUPERVISOR_ESCALATE:
-            # Escalate to manager
-            self._escalation_chain.append(
-                f"Supervisor escalated: {action.reason or 'complex case'}"
-            )
-            self._hierarchy.escalation_reason = action.reason
-            self._active_role = AgentRole.MANAGER
-            self._hierarchy.current_phase = "manager_override"
+            # Escalate to manager (only if L3 is active in this curriculum stage)
+            if 3 not in self._active_levels:
+                # L3 not available in this curriculum stage — treat as terminal
+                self._escalation_chain.append(
+                    f"Supervisor escalated (auto-resolved, no L3 in curriculum): {action.reason or 'complex case'}"
+                )
+                done = True
+                self._done = True
+            else:
+                self._escalation_chain.append(
+                    f"Supervisor escalated: {action.reason or 'complex case'}"
+                )
+                self._hierarchy.escalation_reason = action.reason
+                self._active_role = AgentRole.MANAGER
+                self._hierarchy.current_phase = "manager_override"
 
         # Check step limit
         if self._step >= self._max_steps:

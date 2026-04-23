@@ -123,22 +123,33 @@ class PolicyEngine:
         task: str = "easy",
         category: str = "billing",
         drift_probability: float = 0.4,
+        multi_drift: bool = False,
     ) -> None:
         self._task = task
         self._category = category
         self._drift_probability = drift_probability
+        self._multi_drift = multi_drift
         self._active_changes: Dict[str, Any] = {}
         self._triggered_events: List[Dict[str, Any]] = []
         self._available_events = self._filter_events_for_category(category)
-        # Pre-select which event will fire (if any) and at which step
-        self._scheduled_event: Optional[Dict[str, Any]] = None
-        self._scheduled_step: Optional[int] = None
+        # Pre-select which events will fire and at which steps
+        self._scheduled_events: List[tuple[Dict[str, Any], int]] = []
         if self._available_events and random.random() < drift_probability:
-            self._scheduled_event = random.choice(self._available_events)
-            self._scheduled_step = random.randint(
-                self._scheduled_event["min_step"],
-                self._scheduled_event["max_step"],
-            )
+            if multi_drift:
+                # Multi-drift: schedule up to 3 events at different steps
+                count = min(3, len(self._available_events))
+                selected = random.sample(self._available_events, count)
+                for event in selected:
+                    step = random.randint(event["min_step"], event["max_step"])
+                    self._scheduled_events.append((event, step))
+            else:
+                # Single drift (default)
+                event = random.choice(self._available_events)
+                step = random.randint(event["min_step"], event["max_step"])
+                self._scheduled_events.append((event, step))
+        # Legacy compat properties
+        self._scheduled_event = self._scheduled_events[0][0] if self._scheduled_events else None
+        self._scheduled_step = self._scheduled_events[0][1] if self._scheduled_events else None
 
     def _filter_events_for_category(self, category: str) -> List[Dict[str, Any]]:
         return [
@@ -150,19 +161,24 @@ class PolicyEngine:
         """
         Check if a policy drift event should fire at this step.
         Returns the event text string if triggered, None otherwise.
+        Supports multi-drift: multiple events can fire at different steps.
         """
-        if (
-            self._scheduled_event is not None
-            and self._scheduled_step is not None
-            and step == self._scheduled_step
-        ):
-            event = self._scheduled_event
-            self._active_changes.update(event["policy_change"])
-            self._triggered_events.append(event)
-            # Clear so it doesn't fire again
-            self._scheduled_event = None
-            self._scheduled_step = None
-            return event["event_text"]
+        fired_texts = []
+        remaining = []
+        for event, sched_step in self._scheduled_events:
+            if step == sched_step:
+                self._active_changes.update(event["policy_change"])
+                self._triggered_events.append(event)
+                fired_texts.append(event["event_text"])
+            else:
+                remaining.append((event, sched_step))
+        self._scheduled_events = remaining
+        # Update legacy compat
+        self._scheduled_event = remaining[0][0] if remaining else None
+        self._scheduled_step = remaining[0][1] if remaining else None
+
+        if fired_texts:
+            return "\n\n".join(fired_texts)
         return None
 
     def get_active_policy_text(self) -> str:

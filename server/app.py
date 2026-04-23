@@ -37,7 +37,9 @@ from env.models import Action
 from env.ticket_store import ticket_store
 
 _ALL_TASKS = ("easy", "medium", "hard", "nightmare",
-              "hierarchy_easy", "hierarchy_medium", "hierarchy_hard")
+              "hierarchy_easy", "hierarchy_medium", "hierarchy_hard",
+              "curriculum_basic", "curriculum_supervisor",
+              "curriculum_full_hierarchy", "curriculum_nightmare")
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 structlog.configure(
@@ -83,8 +85,8 @@ MAX_BODY_BYTES = 64 * 1024  # 64KB per request
 
 app = FastAPI(
     title="CustomerSupportEnv",
-    version="1.0.0",
-    description="OpenEnv-compliant RL environment for customer support agent training.",
+    version="2.1.0",
+    description="OpenEnv-compliant hierarchical multi-agent RL environment with progressive curriculum.",
     lifespan=lifespan,
 )
 
@@ -197,11 +199,13 @@ def reset(
     task: Literal[
         "easy", "medium", "hard", "nightmare",
         "hierarchy_easy", "hierarchy_medium", "hierarchy_hard",
+        "curriculum_basic", "curriculum_supervisor",
+        "curriculum_full_hierarchy", "curriculum_nightmare",
     ] = Query(default="easy"),
 ):
     """
     Start a new episode. Returns session_id + initial observation.
-    Automatically uses HierarchicalCustomerSupportEnv for hierarchy_* tasks.
+    Automatically uses HierarchicalCustomerSupportEnv for hierarchy_* and curriculum_* tasks.
     Rate limited: 30 resets/minute per IP.
     Hard cap: 500 concurrent sessions.
     """
@@ -215,7 +219,8 @@ def reset(
         )
 
     # Auto-select environment class based on task prefix
-    if task.startswith("hierarchy_"):
+    is_hierarchical = task.startswith("hierarchy_") or task.startswith("curriculum_")
+    if is_hierarchical:
         env = HierarchicalCustomerSupportEnv(task=task)
     else:
         env = CustomerSupportEnv(task=task)
@@ -224,7 +229,7 @@ def reset(
     _sessions[env.session_id] = (env, time.monotonic())
 
     logger.info("session_created", session_id=env.session_id, task=task,
-                hierarchical=task.startswith("hierarchy_"), active_sessions=len(_sessions))
+                hierarchical=is_hierarchical, active_sessions=len(_sessions))
 
     return {
         "session_id": env.session_id,
@@ -378,11 +383,13 @@ def health(request: Request):
 def root(request: Request):
     return {
         "name": "CustomerSupportEnv",
-        "version": "2.0.0",
-        "description": "Hierarchical multi-agent RL environment for customer support",
+        "version": "2.1.0",
+        "description": "Hierarchical multi-agent RL environment with progressive 4-stage curriculum",
         "docs": "/docs",
         "health": "/health",
         "tasks": list(_ALL_TASKS),
+        "curriculum": ["curriculum_basic", "curriculum_supervisor",
+                       "curriculum_full_hierarchy", "curriculum_nightmare"],
         "endpoints": ["/reset", "/step", "/state/{session_id}", "/health"],
     }
 

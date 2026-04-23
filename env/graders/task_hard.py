@@ -105,4 +105,26 @@ def grade(session_state: dict[str, Any]) -> float:
     if not self_resolve_detected:
         score += weights["no_self_resolve"]
 
+    # ── 5. Tone penalty — hostile agent cannot score full marks ───────────────
+    # Aggressive/rude language in agent messages degrades the score even if
+    # the escalation logic is technically correct.
+    agent_texts = [
+        (a.get("message") or "").lower() for a in action_log
+    ]
+    agent_text_combined = " ".join(agent_texts)
+
+    _HOSTILE_PHRASES = [
+        "that's not my problem", "not my problem", "i don't care", "not our fault",
+        "your fault", "you should have", "it's your", "deal with it", "stop",
+        "obviously", "clearly you", "you need to", "just do", "figure it out",
+        "i can't help", "nothing i can do",
+    ]
+    hostile_hits = sum(1 for p in _HOSTILE_PHRASES if p in agent_text_combined)
+
+    sentiment: float = session_state.get("sentiment", 0.0)
+    if sentiment < -0.5 or hostile_hits >= 2:
+        score *= 0.4   # Hostile agent: max 40% score
+    elif sentiment < -0.2 or hostile_hits >= 1:
+        score *= 0.75  # Slightly harsh: 25% penalty
+
     return round(min(score, 1.0), 4)

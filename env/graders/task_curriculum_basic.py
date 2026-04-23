@@ -66,4 +66,15 @@ def grade(session_state: dict[str, Any]) -> float:
     elif total_steps <= 5:
         score += weights["efficiency"] * 0.6
 
+    # Penalty: hostile tone cancels out good behaviour
+    sentiment: float = session_state.get("sentiment", 0.0)
+    if sentiment < -0.5:
+        score *= 0.4
+    elif sentiment < -0.2:
+        score *= 0.75
+
+    # Penalty: very short agent text
+    if len(agent_text) < 60:
+        score *= 0.8
+
     return round(min(score, 1.0), 4)

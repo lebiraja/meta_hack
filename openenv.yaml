@@ -1,13 +1,14 @@
 name: customer-support-env
-version: "1.0.0"
+version: "2.0.0"
 description: >
-  Real-world OpenEnv RL environment for AI customer support agent training.
-  An agent resolves support tickets across three difficulty levels with
-  partial reward signals measuring resolution quality, tone, efficiency,
-  and accuracy. Designed to train agents that genuinely help customers —
-  not keyword-stuff responses.
+  Hierarchical multi-agent RL environment for AI customer support training.
+  Features a 3-level agent hierarchy (Support Agent → Supervisor → Manager),
+  LLM-driven customer simulator with Hinglish support, dynamic policy drift,
+  and hybrid dense rewards combining rule-based and LLM-as-Judge evaluation.
+  Backward compatible with Round 1 single-agent tasks.
 author: Team X-Force
 tasks:
+  # ── Round 1: Single-agent tasks (backward compatible) ──────────────────────
   - name: easy
     description: Single-turn FAQ resolution (billing — refunds, double charges, invoice errors)
     max_steps: 5
@@ -20,20 +21,48 @@ tasks:
   - name: nightmare
     description: Multi-issue tickets requiring prioritisation (e.g. Account locked AND unauthorized charge)
     max_steps: 12
+  # ── Round 2: Hierarchical multi-agent tasks ─────────────────────────────────
+  - name: hierarchy_easy
+    description: >
+      Hierarchical: Support Agent handles billing FAQ. Supervisor reviews and
+      approves. No manager needed. Tests basic hierarchy flow.
+    max_steps: 8
+  - name: hierarchy_medium
+    description: >
+      Hierarchical: Support Agent handles technical issue. Supervisor may
+      give feedback or request corrections. Mid-episode policy drift possible.
+      Tests supervisor oversight quality and agent adaptability.
+    max_steps: 12
+  - name: hierarchy_hard
+    description: >
+      Hierarchical: Critical SLA breach requiring all 3 levels. Support Agent
+      must recognize urgency, Supervisor must escalate to Manager, Manager
+      makes final decision. Schema drift guaranteed. Indian enterprise context.
+    max_steps: 15
 action_space:
   type: ActionType
   values:
+    # L1 Support Agent
     - respond
     - escalate
     - close
     - request_info
+    # L2 Supervisor
+    - supervisor_approve
+    - supervisor_reject
+    - supervisor_feedback
+    - supervisor_escalate
+    # L3 Manager
+    - manager_override
+    - manager_resolve
+    - manager_send_back
 observation_space:
   session_id: string
   ticket_id: string
   category: string
   priority: "low | medium | high | critical"
   subject: string
-  conversation_history: "list[{role: customer|agent, content: string}]"
+  conversation_history: "list[{role: customer|agent|supervisor|manager|system, content: string}]"
   customer_sentiment: "float in [-1.0, 1.0]"
   mood_trajectory: "list[float]"
   unresolved_issues: "list[string]"
@@ -41,23 +70,49 @@ observation_space:
   max_steps: int
   is_done: bool
   task: string
+  # Hierarchy fields (Round 2)
+  active_role: "support_agent | supervisor | manager"
+  supervisor_feedback: "string | null"
+  manager_directive: "string | null"
+  environment_event: "string | null"
+  policy_context: string
+  escalation_chain: "list[string]"
+  hierarchy_state:
+    support_agent_actions: int
+    supervisor_reviews: int
+    manager_interventions: int
+    current_phase: string
+    escalation_reason: "string | null"
 reward_range: [0.0, 1.0]
 reward_signals:
+  # Single-agent mode
   resolution: 0.40
   tone: 0.20
   efficiency: 0.20
   accuracy: 0.20
+  # Hierarchy mode (additional)
+  empathy: "LLM-as-Judge"
+  policy_adherence: "LLM-as-Judge"
+  oversight_quality: "LLM-as-Judge"
+  decision_quality: "LLM-as-Judge"
+  hierarchy_effectiveness: "Rule-based"
+  sla_compliance: "Rule-based"
 tags:
   - customer-support
+  - multi-agent
+  - hierarchical
   - nlp
   - multi-turn
   - real-world
   - rl-environment
   - openenv
-  - pytorch
+  - llm-as-judge
+  - indian-enterprise
+  - hinglish
+  - policy-drift
   - meta-hackathon
 endpoints:
-  reset: "POST /reset?task={easy|medium|hard|nightmare}"
+  reset: "POST /reset?task={easy|medium|hard|nightmare|hierarchy_easy|hierarchy_medium|hierarchy_hard}"
   step: "POST /step?session_id={id}"
   state: "GET /state/{session_id}"
   health: "GET /health"

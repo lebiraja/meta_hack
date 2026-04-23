@@ -1,36 +1,157 @@
+"""
+Typed models for the Customer Support RL Environment.
+
+Supports both single-agent (Round 1) and hierarchical multi-agent (Round 2) modes.
+Backward compatible: single-agent actions still work by defaulting role to 'support_agent'.
+"""
+
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Literal, Dict, Any
 from enum import Enum
 
 
+# ── Agent Roles ────────────────────────────────────────────────────────────────
+
+class AgentRole(str, Enum):
+    SUPPORT_AGENT = "support_agent"
+    SUPERVISOR = "supervisor"
+    MANAGER = "manager"
+
+
+class SupervisorDecision(str, Enum):
+    APPROVE = "approve"                # L1 action is good, send to customer
+    REJECT = "reject"                  # L1 action is bad, redo
+    FEEDBACK = "feedback"              # L1 action needs adjustment, provide guidance
+    ESCALATE_TO_MANAGER = "escalate_to_manager"  # Too complex for L2, send to L3
+
+
+class ManagerDecision(str, Enum):
+    OVERRIDE = "override"              # Manager takes over and responds directly
+    APPROVE_ESCALATION = "approve_escalation"  # Approve L1's escalation request
+    RESOLVE_DIRECTLY = "resolve_directly"      # Manager resolves the issue
+    SEND_BACK = "send_back"            # Send back to L1 with directive
+
+
+# ── Action Types ───────────────────────────────────────────────────────────────
+
 class ActionType(str, Enum):
+    # L1 Support Agent actions
     RESPOND = "respond"
     ESCALATE = "escalate"
     CLOSE = "close"
     REQUEST_INFO = "request_info"
+    # L2 Supervisor actions
+    SUPERVISOR_APPROVE = "supervisor_approve"
+    SUPERVISOR_REJECT = "supervisor_reject"
+    SUPERVISOR_FEEDBACK = "supervisor_feedback"
+    SUPERVISOR_ESCALATE = "supervisor_escalate"
+    # L3 Manager actions
+    MANAGER_OVERRIDE = "manager_override"
+    MANAGER_RESOLVE = "manager_resolve"
+    MANAGER_SEND_BACK = "manager_send_back"
 
+
+# Map action types to their originating role
+ACTION_ROLE_MAP: Dict[ActionType, AgentRole] = {
+    ActionType.RESPOND: AgentRole.SUPPORT_AGENT,
+    ActionType.ESCALATE: AgentRole.SUPPORT_AGENT,
+    ActionType.CLOSE: AgentRole.SUPPORT_AGENT,
+    ActionType.REQUEST_INFO: AgentRole.SUPPORT_AGENT,
+    ActionType.SUPERVISOR_APPROVE: AgentRole.SUPERVISOR,
+    ActionType.SUPERVISOR_REJECT: AgentRole.SUPERVISOR,
+    ActionType.SUPERVISOR_FEEDBACK: AgentRole.SUPERVISOR,
+    ActionType.SUPERVISOR_ESCALATE: AgentRole.SUPERVISOR,
+    ActionType.MANAGER_OVERRIDE: AgentRole.MANAGER,
+    ActionType.MANAGER_RESOLVE: AgentRole.MANAGER,
+    ActionType.MANAGER_SEND_BACK: AgentRole.MANAGER,
+}
+
+# L1 action types (for backward compatibility checks)
+L1_ACTION_TYPES = {
+    ActionType.RESPOND, ActionType.ESCALATE,
+    ActionType.CLOSE, ActionType.REQUEST_INFO,
+}
+L2_ACTION_TYPES = {
+    ActionType.SUPERVISOR_APPROVE, ActionType.SUPERVISOR_REJECT,
+    ActionType.SUPERVISOR_FEEDBACK, ActionType.SUPERVISOR_ESCALATE,
+}
+L3_ACTION_TYPES = {
+    ActionType.MANAGER_OVERRIDE, ActionType.MANAGER_RESOLVE,
+    ActionType.MANAGER_SEND_BACK,
+}
+
+
+# ── Core Models ────────────────────────────────────────────────────────────────
 
 class Action(BaseModel):
     action_type: ActionType
     message: Optional[str] = Field(default=None, max_length=2000)
     reason: Optional[str] = Field(default=None, max_length=500)
+    # Hierarchy fields (default for backward compat)
+    role: AgentRole = Field(default=AgentRole.SUPPORT_AGENT)
+    internal_note: Optional[str] = Field(
+        default=None, max_length=1000,
+        description="Internal reasoning, not shown to customer"
+    )
+    feedback_to_agent: Optional[str] = Field(
+        default=None, max_length=1000,
+        description="Supervisor/Manager feedback to the lower-level agent"
+    )
 
     model_config = {"use_enum_values": True}
 
     @model_validator(mode="after")
     def validate_content(self):
-        if self.action_type == ActionType.RESPOND:
+        at = ActionType(self.action_type)
+        # L1 validations
+        if at == ActionType.RESPOND:
             if not self.message or not self.message.strip():
                 raise ValueError("message cannot be empty when action_type is 'respond'")
-        if self.action_type == ActionType.ESCALATE:
+        if at == ActionType.ESCALATE:
             if not self.reason or not self.reason.strip():
                 raise ValueError("reason cannot be empty when action_type is 'escalate'")
+        # L2 validations
+        if at == ActionType.SUPERVISOR_FEEDBACK:
+            if not self.feedback_to_agent or not self.feedback_to_agent.strip():
+                raise ValueError("feedback_to_agent required for supervisor_feedback")
+        if at == ActionType.SUPERVISOR_ESCALATE:
+            if not self.reason or not self.reason.strip():
+                raise ValueError("reason required for supervisor_escalate")
+        # L3 validations
+        if at in (ActionType.MANAGER_OVERRIDE, ActionType.MANAGER_RESOLVE):
+            if not self.message or not self.message.strip():
+                raise ValueError("message required for manager_override/manager_resolve")
+        if at == ActionType.MANAGER_SEND_BACK:
+            if not self.feedback_to_agent or not self.feedback_to_agent.strip():
+                raise ValueError("feedback_to_agent required for manager_send_back")
+        # Auto-set role from action_type if not explicitly provided
+        expected_role = ACTION_ROLE_MAP.get(at)
+        if expected_role and self.role != expected_role:
+            self.role = expected_role
         return self
 
 
 class Message(BaseModel):
-    role: Literal["customer", "agent"]
+    role: Literal["customer", "agent", "supervisor", "manager", "system"]
     content: str
+
+
+class HierarchyState(BaseModel):
+    """Internal state of the agent hierarchy within an episode."""
+    support_agent_actions: int = 0
+    supervisor_reviews: int = 0
+    manager_interventions: int = 0
+    current_phase: str = Field(
+        default="support_handling",
+        description="Current phase: support_handling, supervisor_review, manager_override"
+    )
+    escalation_reason: Optional[str] = None
+    supervisor_feedback_history: List[str] = Field(default_factory=list)
+    manager_directive_history: List[str] = Field(default_factory=list)
+    pending_l1_action: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="The L1 action waiting for supervisor review"
+    )
 
 
 class Observation(BaseModel):
@@ -47,6 +168,32 @@ class Observation(BaseModel):
     unresolved_issues: List[str]
     is_done: bool
     task: str
+    # ── Hierarchy fields (Round 2) ─────────────────────────────────────────────
+    active_role: str = Field(
+        default="support_agent",
+        description="Which agent should act next: support_agent, supervisor, manager"
+    )
+    supervisor_feedback: Optional[str] = Field(
+        default=None,
+        description="Latest feedback from supervisor to support agent"
+    )
+    manager_directive: Optional[str] = Field(
+        default=None,
+        description="Latest directive from manager"
+    )
+    hierarchy_state: Optional[HierarchyState] = None
+    environment_event: Optional[str] = Field(
+        default=None,
+        description="Schema drift / policy change event"
+    )
+    policy_context: str = Field(
+        default="Standard operating procedure. Follow all default policies.",
+        description="Current active policy text"
+    )
+    escalation_chain: List[str] = Field(
+        default_factory=list,
+        description="History of escalations in this episode"
+    )
 
 
 class Reward(BaseModel):
@@ -56,6 +203,15 @@ class Reward(BaseModel):
     efficiency_score: float
     accuracy_score: float
     breakdown: Dict[str, Any]
+    # ── Hierarchy reward fields (Round 2) ──────────────────────────────────────
+    empathy_score: float = Field(default=0.0, description="LLM-judged empathy")
+    oversight_score: float = Field(default=0.0, description="Supervisor oversight quality")
+    decision_quality_score: float = Field(default=0.0, description="Manager decision quality")
+    policy_adherence_score: float = Field(default=0.0, description="LLM-judged policy adherence")
+    role_rewards: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-role reward breakdown: {support_agent: x, supervisor: y, manager: z}"
+    )
 
 
 class Ticket(BaseModel):
@@ -69,4 +225,5 @@ class Ticket(BaseModel):
     expected_resolution_type: str
     ideal_max_steps: int
     customer_persona: Literal["impatient", "polite", "confused"]
-    task: Literal["easy", "medium", "hard", "nightmare"]
+    task: Literal["easy", "medium", "hard", "nightmare",
+                  "hierarchy_easy", "hierarchy_medium", "hierarchy_hard"]

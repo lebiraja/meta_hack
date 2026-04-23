@@ -31,10 +31,13 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from env.environment import CustomerSupportEnv
+from env.environment import CustomerSupportEnv, HierarchicalCustomerSupportEnv
 from env.graders import grade as run_grader
 from env.models import Action
 from env.ticket_store import ticket_store
+
+_ALL_TASKS = ("easy", "medium", "hard", "nightmare",
+              "hierarchy_easy", "hierarchy_medium", "hierarchy_hard")
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 structlog.configure(
@@ -189,9 +192,16 @@ def sanitize_pii(state: dict) -> dict:
 
 @app.post("/reset")
 @limiter.limit("30/minute")
-def reset(request: Request, task: Literal["easy", "medium", "hard", "nightmare"] = Query(default="easy")):
+def reset(
+    request: Request,
+    task: Literal[
+        "easy", "medium", "hard", "nightmare",
+        "hierarchy_easy", "hierarchy_medium", "hierarchy_hard",
+    ] = Query(default="easy"),
+):
     """
     Start a new episode. Returns session_id + initial observation.
+    Automatically uses HierarchicalCustomerSupportEnv for hierarchy_* tasks.
     Rate limited: 30 resets/minute per IP.
     Hard cap: 500 concurrent sessions.
     """
@@ -204,11 +214,17 @@ def reset(request: Request, task: Literal["easy", "medium", "hard", "nightmare"]
             detail=f"Server at capacity ({MAX_SESSIONS} concurrent sessions). Try again later.",
         )
 
-    env = CustomerSupportEnv(task=task)
+    # Auto-select environment class based on task prefix
+    if task.startswith("hierarchy_"):
+        env = HierarchicalCustomerSupportEnv(task=task)
+    else:
+        env = CustomerSupportEnv(task=task)
+
     obs = env.reset()
     _sessions[env.session_id] = (env, time.monotonic())
 
-    logger.info("session_created", session_id=env.session_id, task=task, active_sessions=len(_sessions))
+    logger.info("session_created", session_id=env.session_id, task=task,
+                hierarchical=task.startswith("hierarchy_"), active_sessions=len(_sessions))
 
     return {
         "session_id": env.session_id,
@@ -362,9 +378,11 @@ def health(request: Request):
 def root(request: Request):
     return {
         "name": "CustomerSupportEnv",
-        "version": "1.0.0",
+        "version": "2.0.0",
+        "description": "Hierarchical multi-agent RL environment for customer support",
         "docs": "/docs",
         "health": "/health",
+        "tasks": list(_ALL_TASKS),
         "endpoints": ["/reset", "/step", "/state/{session_id}", "/health"],
     }
 

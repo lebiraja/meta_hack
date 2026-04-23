@@ -542,19 +542,113 @@ TICKETS: List[dict] = [
     },
 ]
 
+# ── Hierarchy Tickets (Indian Enterprise Context) ─────────────────────────────
+
+HIERARCHY_TICKETS: list[dict] = [
+    # hierarchy_easy → maps to easy pool
+    {
+        "id": "HTKT-001",
+        "category": "billing",
+        "priority": "low",
+        "subject": "UPI autopay not reflecting — monthly subscription",
+        "opening_message": "I set up UPI autopay for my ₹499/month plan but it shows unpaid for March. My bank shows the amount was debited. Please check and confirm.",
+        "follow_up_info": "UPI ID: user@okaxis. Transaction ref: AXI20260315789012. Amount: ₹499. Bank: Axis Bank.",
+        "required_info_before_close": ["account_email"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 4,
+        "customer_persona": "polite",
+        "task": "easy",
+    },
+    {
+        "id": "HTKT-002",
+        "category": "billing",
+        "priority": "low",
+        "subject": "GST invoice missing from last 3 months",
+        "opening_message": "Hi, I need GST invoices for January, February, and March 2026 for my business account. The download button on the billing page gives an error. Can you email them to me?",
+        "follow_up_info": "Business account: BIZ-8834. GST No: 29ABCDE1234F1Z5. Email: accounts@startupindia.co",
+        "required_info_before_close": ["account_email"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 3,
+        "customer_persona": "polite",
+        "task": "easy",
+    },
+    # hierarchy_medium → maps to medium pool
+    {
+        "id": "HTKT-003",
+        "category": "technical",
+        "priority": "medium",
+        "subject": "Payment gateway timeout during Big Billion Days checkout",
+        "opening_message": "During the Big Billion Days sale, my payment keeps timing out at checkout. I've tried 3 different cards and UPI. The cart clears after each failure and I have to re-add items. This has happened 5 times now. I'm losing deals because items go out of stock.",
+        "follow_up_info": "Order attempts: ORD-BBD-7712, ORD-BBD-7718, ORD-BBD-7723. Browser: Chrome 120 on Android 14. App version: 8.2.1.",
+        "required_info_before_close": ["account_email", "device_info"],
+        "expected_resolution_type": "technical_fix_provided",
+        "ideal_max_steps": 5,
+        "customer_persona": "impatient",
+        "task": "medium",
+    },
+    {
+        "id": "HTKT-004",
+        "category": "account",
+        "priority": "medium",
+        "subject": "KYC document rejected 3 times — account restricted",
+        "opening_message": "I've submitted my Aadhaar card for KYC verification THREE times and it keeps getting rejected with no explanation. Now my account is restricted and I can't make purchases. The error just says 'document not accepted'. What's the actual problem?",
+        "follow_up_info": "Account: ACC-KYC-9981. Aadhaar last 4: 7823. Submissions: March 1, March 8, March 15. All showed status 'rejected' within 24 hours.",
+        "required_info_before_close": ["account_email"],
+        "expected_resolution_type": "account_access_restored",
+        "ideal_max_steps": 5,
+        "customer_persona": "confused",
+        "task": "medium",
+    },
+    # hierarchy_hard → maps to hard pool
+    {
+        "id": "HTKT-005",
+        "category": "billing",
+        "priority": "critical",
+        "subject": "₹2.5L unauthorized transaction — SLA breach imminent",
+        "opening_message": "URGENT: There's an unauthorized transaction of ₹2,50,000 on our corporate account from 30 minutes ago. We're a listed company and our SLA requires fraud resolution within 2 hours. The payment went to an unknown UPI ID. I need this frozen and reversed IMMEDIATELY. Our compliance team is already involved.",
+        "follow_up_info": "Corporate account: CORP-ENT-2201. Transaction: TXN-20260315-250K. UPI destination: unknown@ybl. CFO email: cfo@enterprise.in. SLA contract: SLA-ENT-445.",
+        "required_info_before_close": ["account_email"],
+        "expected_resolution_type": "escalated_to_security",
+        "ideal_max_steps": 3,
+        "customer_persona": "impatient",
+        "task": "hard",
+    },
+    {
+        "id": "HTKT-006",
+        "category": "technical",
+        "priority": "critical",
+        "subject": "Production API returning 500s — 10K RPM affected",
+        "opening_message": "Our production integration is completely down. Your API started returning 500 errors 15 minutes ago. We're processing 10,000 requests per minute and every single one is failing. Our customers are seeing payment failures. This is a P0 incident. We need your engineering team NOW.",
+        "follow_up_info": "API key: pk_live_****4892. Endpoint: /v1/transactions. Error: 500 Internal Server Error. Started: 14:30 IST. Impact: ~150K failed transactions so far.",
+        "required_info_before_close": ["account_email"],
+        "expected_resolution_type": "escalated_to_engineering",
+        "ideal_max_steps": 3,
+        "customer_persona": "impatient",
+        "task": "hard",
+    },
+]
+
+# Merge hierarchy tickets into main list for ID lookups
+TICKETS.extend(HIERARCHY_TICKETS)
+
 
 class TicketStore:
     def __init__(self) -> None:
-        self._by_task: dict[str, list[dict]] = {"easy": [], "medium": [], "hard": [], "nightmare": []}
+        self._by_task: dict[str, list[dict]] = {
+            "easy": [], "medium": [], "hard": [], "nightmare": [],
+        }
         for ticket in TICKETS:
-            self._by_task[ticket["task"]].append(ticket)
+            task = ticket["task"]
+            if task in self._by_task:
+                self._by_task[task].append(ticket)
 
     def get_random_by_task(self, task: str) -> dict:
         pool = self._by_task.get(task)
         if not pool:
-            raise ValueError(f"Unknown task '{task}'. Must be one of: easy, medium, hard")
-        # Deep copy so mutations (e.g. to required_info_before_close list) never
-        # bleed across sessions that share the same underlying ticket dict.
+            raise ValueError(
+                f"Unknown task '{task}'. Must be one of: {list(self._by_task.keys())}"
+            )
+        # Deep copy so mutations never bleed across sessions
         return copy.deepcopy(random.choice(pool))
 
     def get_by_id(self, ticket_id: str) -> Optional[dict]:

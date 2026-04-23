@@ -207,8 +207,20 @@ def build_prompt_string(obs: Dict[str, Any], tokenizer, hierarchical: bool = Tru
     Ready to pass directly to model.generate().
     """
     messages = build_prompt_messages(obs, hierarchical)
-    return tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
+    try:
+        # Qwen3: disable chain-of-thought thinking during training.
+        # Thinking tokens would be stripped anyway, but generating them wastes
+        # 3-5s per rollout step — catastrophic at scale.
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+    except TypeError:
+        # Older transformers versions don't support enable_thinking
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )

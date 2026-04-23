@@ -162,7 +162,7 @@ def run_sft(
     max_steps: int = 500,
     batch_size: int = 4,
     lr: float = 2e-4,
-    model_name: str = "unsloth/Meta-Llama-3.1-8B-Instruct",
+    model_name: str = "unsloth/Qwen3-8B",
     max_seq_len: int = 2048,
 ):
     """
@@ -271,7 +271,7 @@ def parse_args():
                    help="SFT training steps")
     p.add_argument("--out_dir", default="checkpoints/sft",
                    help="Output directory for SFT checkpoint")
-    p.add_argument("--model", default="unsloth/Meta-Llama-3.1-8B-Instruct")
+    p.add_argument("--model", default="unsloth/Qwen3-8B")
     p.add_argument("--env_url", default="http://localhost:7860")
     return p.parse_args()
 

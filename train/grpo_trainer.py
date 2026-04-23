@@ -107,8 +107,9 @@ def grpo_loss(
             ratio = log_ratio.exp()
             clipped = ratio.clamp(1.0 - config.clip_eps, 1.0 + config.clip_eps)
 
-            # Both ratio and clipped are (n_tokens,); adv is a scalar
-            pg = -adv_tensor * torch.min(ratio * adv_tensor, clipped * adv_tensor)
+            # Standard PPO clip: -min(ratio·A, clip(ratio,1±ε)·A)
+            # Do NOT multiply adv_tensor outside — that would square the advantage.
+            pg = -torch.min(ratio * adv_tensor, clipped * adv_tensor)
 
             # ── KL divergence penalty ─────────────────────────────────────────
             kl = cur_lp_for_kl - ref_lp_aligned.detach()

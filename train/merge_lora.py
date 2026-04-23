@@ -57,9 +57,9 @@ def merge_and_save(
         if adapter_config.exists():
             import json
             cfg = json.loads(adapter_config.read_text())
-            model_name = cfg.get("base_model_name_or_path", "unsloth/Meta-Llama-3.1-8B-Instruct")
+            model_name = cfg.get("base_model_name_or_path", "unsloth/Qwen3-8B")
         else:
-            model_name = "unsloth/Meta-Llama-3.1-8B-Instruct"
+            model_name = "unsloth/Qwen3-8B"
 
     print(f"[MERGE] base model : {model_name}")
     print(f"[MERGE] adapters   : {ckpt_dir}")

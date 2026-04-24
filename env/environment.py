@@ -151,11 +151,20 @@ class CustomerSupportEnv:
         self._action_log = []
         return self._build_observation()
 
-    def step(self, action: Action) -> tuple[Observation, Reward, bool, dict]:
+    def step(
+        self, action: Action, human_customer_message: Optional[str] = None
+    ) -> tuple[Observation, Reward, bool, dict]:
         if self._done:
             raise RuntimeError("Episode is done. Call reset() to start a new episode.")
         if self._ticket is None:
             raise RuntimeError("Environment not initialized. Call reset() first.")
+
+        at = ActionType(action.action_type)
+        if at in (L2_ACTION_TYPES | L3_ACTION_TYPES):
+            raise RuntimeError(
+                f"Action '{action.action_type}' is only valid in hierarchical tasks. "
+                f"Use a hierarchy_* or curriculum_* task for multi-role workflows."
+            )
 
         self._step += 1
         is_terminal = self._is_terminal_action(action)
@@ -175,8 +184,12 @@ class CustomerSupportEnv:
 
         done = is_terminal or self._step >= self._max_steps
         if not done:
-            customer_reply = self._simulate_customer_reply(action)
-            self._history.append(Message(role="customer", content=customer_reply))
+            if human_customer_message:
+                # Human is playing as customer — record their message directly
+                self._history.append(Message(role="customer", content=human_customer_message))
+            else:
+                customer_reply = self._simulate_customer_reply(action)
+                self._history.append(Message(role="customer", content=customer_reply))
 
         self._done = done
         obs = self._build_observation()
@@ -241,14 +254,6 @@ class CustomerSupportEnv:
         persona_replies = _FOLLOW_UPS.get(persona, _FOLLOW_UPS["polite"])
         action_key = "request_info" if action.action_type == ActionType.REQUEST_INFO else "respond"
         replies = persona_replies.get(action_key, persona_replies["respond"])
-
-        if random.random() < 0.15:
-            return random.choice([
-                "I'm not seeing any update on my end. Did that go through?",
-                "I got an error message when I tried that — it says 'service unavailable'.",
-                "Something seems wrong, I'm still seeing the same issue.",
-            ])
-
         template = random.choice(replies)
         follow_up = self._ticket.get("follow_up_info", "")
         return template.format(follow_up_info=follow_up)
@@ -318,7 +323,9 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
         self._environment_event = None
         return self._build_observation()
 
-    def step(self, action: Action) -> tuple[Observation, Reward, bool, dict]:
+    def step(
+        self, action: Action, human_customer_message: Optional[str] = None
+    ) -> tuple[Observation, Reward, bool, dict]:
         if self._done:
             raise RuntimeError("Episode is done. Call reset().")
         if self._ticket is None:
@@ -327,7 +334,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
         at = ActionType(action.action_type)
 
         if at in L1_ACTION_TYPES:
-            return self._step_support(action)
+            return self._step_support(action, human_customer_message=human_customer_message)
         elif at in L2_ACTION_TYPES:
             return self._step_supervisor(action)
         elif at in L3_ACTION_TYPES:
@@ -335,7 +342,9 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
         else:
             raise ValueError(f"Unknown action_type: {action.action_type}")
 
-    def _step_support(self, action: Action) -> tuple[Observation, Reward, bool, dict]:
+    def _step_support(
+        self, action: Action, human_customer_message: Optional[str] = None
+    ) -> tuple[Observation, Reward, bool, dict]:
         """L1 Support Agent acts — action is held for supervisor review."""
         self._step += 1
         self._hierarchy.support_agent_actions += 1
@@ -385,8 +394,11 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             if is_terminal_intent:
                 self._done = True
             elif not self._done:
-                customer_reply = self._simulate_customer_reply(action)
-                self._history.append(Message(role="customer", content=customer_reply))
+                if human_customer_message:
+                    self._history.append(Message(role="customer", content=human_customer_message))
+                else:
+                    customer_reply = self._simulate_customer_reply(action)
+                    self._history.append(Message(role="customer", content=customer_reply))
             self._pending_l1_action = None
             self._hierarchy.pending_l1_action = None
             obs = self._build_observation()
@@ -504,12 +516,11 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
         done = False
 
         if at in (ActionType.MANAGER_OVERRIDE, ActionType.MANAGER_RESOLVE):
-            # Manager resolves directly
+            # Manager resolves directly — always generate customer acknowledgment
+            customer_reply = self._simulate_customer_reply(action)
+            self._history.append(Message(role="customer", content=customer_reply))
             done = True
             self._done = True
-            if not self._done or at == ActionType.MANAGER_OVERRIDE:
-                customer_reply = self._simulate_customer_reply(action)
-                self._history.append(Message(role="customer", content=customer_reply))
 
         elif at == ActionType.MANAGER_SEND_BACK:
             # Send back to L1 with directive
@@ -551,7 +562,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
         assert self._ticket is not None
         unresolved = self._compute_unresolved_issues()
         history_window = self._history[-20:]
-        return Observation(
+        obs = Observation(
             session_id=self.session_id, ticket_id=self._ticket["id"],
             category=self._ticket["category"], priority=self._ticket["priority"],
             subject=self._ticket["subject"], conversation_history=history_window,
@@ -570,6 +581,9 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             ),
             escalation_chain=self._escalation_chain,
         )
+        # Clear one-shot event after it has been included in this observation
+        self._environment_event = None
+        return obs
 
     def state(self) -> dict:
         base = super().state()

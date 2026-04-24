@@ -19,7 +19,7 @@ import logging
 import time
 import uuid
 import structlog
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, Security, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+import httpx
 
 from env.environment import CustomerSupportEnv, HierarchicalCustomerSupportEnv
 from env.graders import grade as run_grader
@@ -52,7 +53,15 @@ logger = structlog.get_logger("customer_support_env")
 
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
-EXPECTED_API_KEY = os.environ.get("ADMIN_API_KEY", "meta_hack_2026")
+_DEFAULT_API_KEY = "meta_hack_2026"
+EXPECTED_API_KEY = os.environ.get("ADMIN_API_KEY", _DEFAULT_API_KEY)
+if EXPECTED_API_KEY == _DEFAULT_API_KEY:
+    import warnings
+    warnings.warn(
+        "ADMIN_API_KEY is not set — using the default key 'meta_hack_2026'. "
+        "Set ADMIN_API_KEY in your environment for production deployments.",
+        stacklevel=1,
+    )
 
 async def verify_api_key(api_key: str = Security(api_key_header)):
     if api_key != EXPECTED_API_KEY:
@@ -82,6 +91,20 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 MAX_SESSIONS = 500          # hard cap on concurrent sessions
 SESSION_TTL_SECONDS = 300   # 5 minutes
 MAX_BODY_BYTES = 64 * 1024  # 64KB per request
+AGENT_MODEL_URL = os.environ.get("AGENT_MODEL_URL", "http://host.docker.internal:8001")
+MAX_HIERARCHY_ITERATIONS = 8
+
+# Normalize common model typos/variants to valid ActionType values
+_ACTION_TYPE_ALIASES: dict[str, str] = {
+    "response": "respond",
+    "escalate_to_supervisor": "supervisor_escalate",
+    "supervisor_escalate_to_manager": "supervisor_escalate",
+    "manager_send_back_to_agent": "manager_send_back",
+    "reject": "supervisor_reject",
+    "approve": "supervisor_approve",
+    "override": "manager_override",
+    "resolve": "manager_resolve",
+}
 
 app = FastAPI(
     title="CustomerSupportEnv",
@@ -146,6 +169,11 @@ class BenchmarkSubmit(BaseModel):
     agent_name: str = Field(..., min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_\-]+$")
 
 
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
 def _sweep_expired_sessions() -> int:
     """Remove sessions older than SESSION_TTL_SECONDS. Returns count removed."""
     now = time.monotonic()
@@ -179,15 +207,33 @@ def sanitize_pii(state: dict) -> dict:
     """Mask PII in conversation history to prevent sensitive data exposure via endpoints."""
     if "history" not in state:
         return state
-        
+
     s_state = copy.deepcopy(state)
     email_regex = re.compile(r"[\w\.-]+@[\w\.-]+\.\w+")
-    
+
     for msg in s_state["history"]:
         if "content" in msg:
             msg["content"] = email_regex.sub("[REDACTED_EMAIL]", msg["content"])
-            
+
     return s_state
+
+
+# Fields stripped from /replay to prevent grading-criteria harvesting
+_TICKET_STRIP_FIELDS = {
+    "expected_resolution_type",
+    "ideal_max_steps",
+    "required_info_before_close",
+    "follow_up_info",
+}
+
+def sanitize_replay(state: dict) -> dict:
+    """Strip ticket grading criteria from replay responses."""
+    state = sanitize_pii(state)
+    if "ticket" in state and isinstance(state["ticket"], dict):
+        state = copy.deepcopy(state)
+        for field in _TICKET_STRIP_FIELDS:
+            state["ticket"].pop(field, None)
+    return state
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -202,6 +248,7 @@ def reset(
         "curriculum_basic", "curriculum_supervisor",
         "curriculum_full_hierarchy", "curriculum_nightmare",
     ] = Query(default="easy"),
+    _key: str = Depends(verify_api_key),
 ):
     """
     Start a new episode. Returns session_id + initial observation.
@@ -243,10 +290,12 @@ def step(
     request: Request,
     session_id: str = Query(..., description="Session ID returned by /reset"),
     action: Action = ...,
+    _key: str = Depends(verify_api_key),
 ):
     """
     Apply an action to the environment.
     Returns observation, reward, done, info (and final_score on done).
+    For human-in-the-loop customer simulation, use /chat instead.
     """
     env = _get_env(session_id)
 
@@ -285,8 +334,121 @@ def step(
     return response
 
 
+@app.post("/chat")
+@limiter.limit("120/minute")
+async def chat(request: Request, body: ChatRequest, _key: str = Depends(verify_api_key)):
+    """
+    Single-port convenience endpoint: takes a human customer message, calls the
+    model server for an action, steps the env, and returns a flat chat response.
+    Internally loops through hierarchy turns (supervisor/manager) so the caller
+    only ever sees support-agent replies.
+    Set AGENT_MODEL_URL to point at a trained model; defaults to host port 8001.
+    """
+    env = _get_env(body.session_id)
+    human_msg = body.message
+    last_action = None
+    last_reward = None
+    last_done = False
+    obs_after = None
+    final_score = None
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for iteration in range(MAX_HIERARCHY_ITERATIONS):
+            obs = env._build_observation().model_dump()
+            # Pass the human's message as a virtual message on the first iteration
+            # so the model sees what the customer just said.
+            virtual_messages = (
+                [{"role": "customer", "content": human_msg}] if iteration == 0 else []
+            )
+            try:
+                r = await client.post(
+                    f"{AGENT_MODEL_URL}/agent-action",
+                    json={"observation": obs, "virtualMessages": virtual_messages},
+                )
+                r.raise_for_status()
+                action_dict = r.json()["action"]
+                # Normalize model typos before pydantic validation
+                raw_at = action_dict.get("action_type", "")
+                action_dict["action_type"] = _ACTION_TYPE_ALIASES.get(raw_at, raw_at)
+            except httpx.RequestError as exc:
+                raise HTTPException(
+                    503,
+                    detail=f"Agent model unreachable at {AGENT_MODEL_URL}: {exc}. "
+                           f"Start serve_inference.py or set AGENT_MODEL_URL.",
+                )
+            except (KeyError, ValueError) as exc:
+                raise HTTPException(502, detail=f"Model returned malformed response: {exc}")
+
+            action = Action(**action_dict)
+            try:
+                obs_after, reward, done, info = env.step(
+                    action,
+                    human_customer_message=human_msg if iteration == 0 else None,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(409, detail=str(exc))
+
+            last_action = action
+            last_reward = reward
+            last_done = done
+
+            if done:
+                state_data = env.state()
+                try:
+                    final_score = run_grader(env.task, state_data)
+                except Exception:
+                    final_score = reward.value
+                state_data["final_score"] = final_score
+                _completed_sessions[body.session_id] = state_data
+                if len(_completed_sessions) > 1000:
+                    del _completed_sessions[next(iter(_completed_sessions))]
+                logger.info("session_completed", session_id=body.session_id,
+                            task=env.task, final_score=final_score, steps=obs_after.step)
+                del _sessions[body.session_id]
+                break
+
+            # Break when a message was actually delivered to the customer:
+            #   - supervisor_approve / manager_override / manager_resolve:
+            #       hierarchy tier signed off — message is out, return to human.
+            #   - respond / close / request_info from support_agent on a flat task
+            #       (no supervisor review): agent message went straight to customer.
+            # supervisor_feedback / supervisor_reject keep the loop going so L1 revises.
+            _HIERARCHY_DELIVER = {"supervisor_approve", "manager_override", "manager_resolve"}
+            _FLAT_DELIVER = {"respond", "close", "request_info"}
+            if last_action.action_type in _HIERARCHY_DELIVER:
+                break
+            if (obs_after.active_role == "support_agent"
+                    and last_action.action_type in _FLAT_DELIVER):
+                break
+        else:
+            raise HTTPException(
+                500,
+                detail=f"Hierarchy did not resolve within {MAX_HIERARCHY_ITERATIONS} iterations",
+            )
+
+    agent_text = (
+        last_action.message
+        or last_action.reason
+        or last_action.feedback_to_agent
+        or ""
+    )
+    return {
+        "agent_reply": agent_text,
+        "action_type": last_action.action_type,
+        "active_role": last_action.role or "support_agent",
+        "reward": last_reward.value,
+        "step": obs_after.step,
+        "max_steps": obs_after.max_steps,
+        "done": last_done,
+        "customer_sentiment": obs_after.customer_sentiment,
+        "unresolved_issues": obs_after.unresolved_issues,
+        "environment_event": obs_after.environment_event,
+        "final_score": final_score,
+    }
+
+
 @app.get("/state/{session_id}")
-def state(request: Request, session_id: str):
+def state(request: Request, session_id: str, _key: str = Depends(verify_api_key)):
     """
     Return full internal state of an active session.
     Conversation history is sanitized of simulated PII.
@@ -296,28 +458,32 @@ def state(request: Request, session_id: str):
 
 
 @app.get("/replay/{session_id}")
-def replay(request: Request, session_id: str):
+def replay(request: Request, session_id: str, _key: str = Depends(verify_api_key)):
     """
     Return the full internal state and history of a completed session.
-    Conversation history is sanitized of simulated PII.
+    Ticket grading criteria (expected resolution, ideal steps, required info) are stripped.
     """
     if session_id not in _completed_sessions:
         raise HTTPException(
             status_code=404,
             detail=f"Completed session '{session_id}' not found. Either it's still active, it expired, or it never existed."
         )
-    return sanitize_pii(_completed_sessions[session_id])
+    return sanitize_replay(_completed_sessions[session_id])
 
 
 @app.get("/leaderboard")
 def get_leaderboard(request: Request):
     """Return the global leaderboard, sorted by score descending."""
-    return sorted(_leaderboard, key=lambda x: x["total_score"], reverse=True)
+    public_fields = ("agent_name", "task_level", "total_score", "steps_taken")
+    return [
+        {k: e[k] for k in public_fields if k in e}
+        for e in sorted(_leaderboard, key=lambda x: x["total_score"], reverse=True)
+    ]
 
 
 @app.post("/leaderboard/submit")
 @limiter.limit("30/minute")
-def submit_leaderboard(request: Request, submission: BenchmarkSubmit):
+def submit_leaderboard(request: Request, submission: BenchmarkSubmit, _key: str = Depends(verify_api_key)):
     """Submit benchmark results safely via proof-of-play mechanics."""
     # Proof of play verification:
     if submission.session_id not in _completed_sessions:
@@ -326,9 +492,17 @@ def submit_leaderboard(request: Request, submission: BenchmarkSubmit):
             detail="Session ID not found in completed replays. You must complete a session before submitting."
         )
         
+    # Reject duplicate submissions for the same session
+    if any(e.get("session_id") == submission.session_id for e in _leaderboard):
+        raise HTTPException(
+            status_code=409,
+            detail="Session already submitted. Each session can only be submitted once."
+        )
+
     session_data = _completed_sessions[submission.session_id]
-    
+
     score_entry = {
+        "session_id": submission.session_id,
         "agent_name": submission.agent_name,
         "task_level": session_data["task"],
         "total_score": session_data["final_score"],
@@ -346,7 +520,7 @@ def submit_leaderboard(request: Request, submission: BenchmarkSubmit):
 
 
 @app.post("/benchmark")
-def run_benchmark(request: Request):
+def run_benchmark(request: Request, _key: str = Depends(verify_api_key)):
     """
     Placeholder for triggering an automated benchmark run.
     """
@@ -496,7 +670,7 @@ def root(request: Request):
         "tasks": list(_ALL_TASKS),
         "curriculum": ["curriculum_basic", "curriculum_supervisor",
                        "curriculum_full_hierarchy", "curriculum_nightmare"],
-        "endpoints": ["/reset", "/step", "/state/{session_id}", "/health"],
+        "endpoints": ["/reset", "/step", "/chat", "/state/{session_id}", "/replay/{session_id}", "/leaderboard", "/health"],
     }
 
 

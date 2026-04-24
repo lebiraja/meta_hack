@@ -9,6 +9,7 @@ Stages (in order):
   2. curriculum_supervisor     → L1+L2, 20% drift
   3. curriculum_full_hierarchy → L1+L2+L3, 80% drift
   4. curriculum_nightmare      → all levels, 100% drift, Hinglish
+  5. multi_domain              → DB-grounded queries, 30 diverse tickets (final stage)
 """
 
 from __future__ import annotations

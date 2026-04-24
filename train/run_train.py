@@ -273,6 +273,16 @@ def train(config: TrainConfig, start_task: str | None, device: str):
                     f"policy={result.mean_policy:.3f} "
                     f"invalid_rate={result.invalid_rate:.2f}"
                 )
+                # Extra DB metrics when training on multi_domain
+                current_task = curriculum.current_task()
+                if current_task == "multi_domain":
+                    print(
+                        f"[EVAL/DB] query_match={result.mean_db_query_match:.3f} "
+                        f"grounded={result.mean_db_grounded_response:.3f} "
+                        f"hallucination={result.mean_db_hallucination:.3f} "
+                        f"wasted_query={result.mean_db_wasted_query:.3f}"
+                    )
+
                 log_wandb(wb, grad_step, {
                     "eval/mean_final_score":    result.mean_final_score,
                     "eval/mean_step_reward":    result.mean_step_reward,
@@ -284,6 +294,11 @@ def train(config: TrainConfig, start_task: str | None, device: str):
                     "eval/mean_accuracy":       result.mean_accuracy,
                     "eval/invalid_rate":        result.invalid_rate,
                     **{f"eval/role_{k}": v for k, v in result.mean_role_rewards.items()},
+                    # DB grounding metrics (0.0 on non-multi_domain stages)
+                    "eval/db_query_match":      result.mean_db_query_match,
+                    "eval/db_grounded_response": result.mean_db_grounded_response,
+                    "eval/db_hallucination":    result.mean_db_hallucination,
+                    "eval/db_wasted_query":     result.mean_db_wasted_query,
                 })
 
                 # Curriculum advancement

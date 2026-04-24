@@ -1168,10 +1168,623 @@ HIERARCHY_TICKETS: list[dict] = [
 TICKETS.extend(HIERARCHY_TICKETS)
 
 
+# ── Multi-domain DB tickets (require query_user_profile / query_order_details) ─
+
+MULTI_DOMAIN_TICKETS = [
+    {
+        "id": "MDTKT-001",
+        "category": "food_delivery",
+        "priority": "medium",
+        "subject": "Order not delivered but marked complete",
+        "opening_message": (
+            "Hi! My name is Sarah Jones. I ordered food from Biryani House last night "
+            "(order ORD-FD-8821) and the app shows it was delivered but I never received anything! "
+            "I paid ₹499 via UPI. Please help me get a refund."
+        ),
+        "follow_up_info": (
+            "Email: sarah.jones@email.com. Order ORD-FD-8821 placed on April 22."
+        ),
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "sarah.jones@email.com",
+        "related_order_ids": ["ORD-FD-8821"],
+    },
+    {
+        "id": "MDTKT-002",
+        "category": "e_commerce",
+        "priority": "high",
+        "subject": "Return request for defective headphones",
+        "opening_message": (
+            "I purchased wireless headphones (ORD-EC-3345) for ₹2499 and they stopped working "
+            "after 3 days. I've already initiated a return request but haven't heard back. "
+            "My email is meera.nair@email.com. When will I get my refund?"
+        ),
+        "follow_up_info": (
+            "Order ORD-EC-3345. Return initiated on April 21. Payment via UPI."
+        ),
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "meera.nair@email.com",
+        "related_order_ids": ["ORD-EC-3345"],
+    },
+    {
+        "id": "MDTKT-003",
+        "category": "ticket_booking",
+        "priority": "high",
+        "subject": "Concert cancelled but no refund received",
+        "opening_message": (
+            "The AR Rahman concert I booked (ORD-TB-2233) was cancelled by the organizers. "
+            "I paid ₹3500 and the website says the refund is pending, but it's been 2 weeks! "
+            "Please look into this. My account email is deepa.iyer@gmail.com."
+        ),
+        "follow_up_info": (
+            "Order ORD-TB-2233. Refund status: pending. Payment via Credit Card."
+        ),
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "deepa.iyer@gmail.com",
+        "related_order_ids": ["ORD-TB-2233"],
+    },
+    {
+        "id": "MDTKT-004",
+        "category": "e_commerce",
+        "priority": "medium",
+        "subject": "Package not arrived — tracking shows shipped",
+        "opening_message": (
+            "I ordered a laptop stand and USB hub (order ORD-EC-4456) and the tracking says "
+            "it was shipped 2 days ago but it's still not here. The estimated delivery was today. "
+            "vikram.singh@outlook.com is my account email. Can you check?"
+        ),
+        "follow_up_info": (
+            "Order ORD-EC-4456. Tracking: DTDC-78903421. Estimated delivery today."
+        ),
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 6,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": "vikram.singh@outlook.com",
+        "related_order_ids": ["ORD-EC-4456"],
+    },
+    {
+        "id": "MDTKT-005",
+        "category": "food_delivery",
+        "priority": "low",
+        "subject": "Wrong items delivered in my order",
+        "opening_message": (
+            "I ordered Masala Dosa and Filter Coffee from Dosa Corner (ORD-FD-7743) "
+            "but received completely different items. The order was eventually cancelled. "
+            "My email is rahul.verma@gmail.com. I want to know what happened."
+        ),
+        "follow_up_info": "Order ORD-FD-7743. Cancellation reason: restaurant_closed.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 5,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "rahul.verma@gmail.com",
+        "related_order_ids": ["ORD-FD-7743"],
+    },
+    {
+        "id": "MDTKT-006",
+        "category": "ticket_booking",
+        "priority": "medium",
+        "subject": "Payment failed but money deducted",
+        "opening_message": (
+            "I tried booking a film festival ticket (ORD-TB-7788) and the payment failed "
+            "due to a UPI timeout but ₹350 was deducted from my account. "
+            "My email is manoj.rao@email.com. Please refund or confirm the booking."
+        ),
+        "follow_up_info": "Order ORD-TB-7788. UPI timeout. Amount: ₹350.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": "manoj.rao@email.com",
+        "related_order_ids": ["ORD-TB-7788"],
+    },
+
+    # ── Food Delivery (MDTKT-007 to MDTKT-013) ────────────────────────────────
+    {
+        "id": "MDTKT-007",
+        "category": "food_delivery",
+        "priority": "medium",
+        "subject": "Delivered food was spilled and damaged",
+        "opening_message": (
+            "Hello, I ordered from Spice Garden last night (order ORD-FD-1100) and when "
+            "the bag arrived the Lassi had completely spilled inside, soaking everything. "
+            "The Butter Chicken and Naan were inedible. I paid ₹389 via UPI. "
+            "My account is arjun.krishna@gmail.com. I want a refund."
+        ),
+        "follow_up_info": "Order ORD-FD-1100. Delivery at 8:25PM. Food packaging was damaged on arrival.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "arjun.krishna@gmail.com",
+        "related_order_ids": ["ORD-FD-1100"],
+    },
+    {
+        "id": "MDTKT-008",
+        "category": "food_delivery",
+        "priority": "high",
+        "subject": "Two items missing from my food order",
+        "opening_message": (
+            "I placed a large order from Patel's Kitchen (ORD-FD-1101) and paid ₹549. "
+            "When the delivery arrived, two items were missing — the Gulab Jamun and "
+            "the Paneer Tikka. The delivery partner said it was packed correctly. "
+            "Email: sanjay.patel@gmail.com. Please help."
+        ),
+        "follow_up_info": "Order ORD-FD-1101. Dal Makhani and Jeera Rice were present. Gulab Jamun and Paneer Tikka missing.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "sanjay.patel@gmail.com",
+        "related_order_ids": ["ORD-FD-1101"],
+    },
+    {
+        "id": "MDTKT-009",
+        "category": "food_delivery",
+        "priority": "medium",
+        "subject": "Order returned to facility — I was home the whole time",
+        "opening_message": (
+            "My order from Mangalore Mess (ORD-FD-1102) shows 'Returned to Facility' "
+            "with reason 'customer unavailable' but I was home all afternoon! "
+            "The delivery partner never called or rang the bell. I paid ₹299 via UPI. "
+            "My email is pooja.bhat@gmail.com. I need a refund or reattempt."
+        ),
+        "follow_up_info": "Order ORD-FD-1102. Placed at 2PM. No missed call on my phone.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "pooja.bhat@gmail.com",
+        "related_order_ids": ["ORD-FD-1102"],
+    },
+    {
+        "id": "MDTKT-010",
+        "category": "food_delivery",
+        "priority": "medium",
+        "subject": "Order still out for delivery — placed 3 hours ago",
+        "opening_message": (
+            "I placed an order from Haldiram's at 1PM (ORD-FD-5512) and it has been "
+            "showing 'Out for Delivery' for 3 hours now. No ETA update, delivery "
+            "partner not picking up the phone. My email is priya.sharma@yahoo.com. "
+            "What is happening with my order?"
+        ),
+        "follow_up_info": "Order ORD-FD-5512. Pav Bhaji and Lassi. Delivery address: 7 Lajpat Nagar, Delhi.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 6,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "priya.sharma@yahoo.com",
+        "related_order_ids": ["ORD-FD-5512"],
+    },
+    {
+        "id": "MDTKT-011",
+        "category": "food_delivery",
+        "priority": "low",
+        "subject": "Food arrived cold after 90-minute delay",
+        "opening_message": (
+            "My order from Dosa Palace (ORD-FD-1104) was placed at 9PM and arrived at "
+            "10:30PM — 90 minutes! The Masala Dosa was cold and soggy, Sambar was "
+            "lukewarm. I paid ₹179. Not worth it. My email is rahul.verma@gmail.com. "
+            "What's the compensation policy for late and cold deliveries?"
+        ),
+        "follow_up_info": "Order ORD-FD-1104. 90-minute delivery time. Food temperature unacceptable.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 5,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "rahul.verma@gmail.com",
+        "related_order_ids": ["ORD-FD-1104"],
+    },
+    {
+        "id": "MDTKT-012",
+        "category": "food_delivery",
+        "priority": "medium",
+        "subject": "Received food from wrong restaurant",
+        "opening_message": (
+            "Something very strange happened with my order (ORD-FD-1103). I ordered "
+            "Chicken Biryani from Biryani House but the packaging was from Burger King! "
+            "The food inside was burgers, not what I ordered. I paid ₹329. "
+            "My email is sarah.jones@email.com. Please explain what happened."
+        ),
+        "follow_up_info": "Order ORD-FD-1103. Correct restaurant: Biryani House. Packaging and food: Burger King.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": "sarah.jones@email.com",
+        "related_order_ids": ["ORD-FD-1103"],
+    },
+    {
+        "id": "MDTKT-013",
+        "category": "food_delivery",
+        "priority": "low",
+        "subject": "Cannot find my order — possible email mismatch",
+        "opening_message": (
+            "Hi, I ordered food yesterday but can't track my order. I think I may have "
+            "registered with a different email. My name is Kavita Singh and the order "
+            "number I have is ORD-FD-9871. My current email is kavita.singgh@gmail.com. "
+            "Can you look it up? I paid ₹450 and need to know the status."
+        ),
+        "follow_up_info": "Customer may have typo in email. Order ORD-FD-9871 does not exist in system.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 6,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": None,
+        "related_order_ids": [],
+    },
+
+    # ── E-Commerce (MDTKT-014 to MDTKT-021) ───────────────────────────────────
+    {
+        "id": "MDTKT-014",
+        "category": "e_commerce",
+        "priority": "high",
+        "subject": "Charged twice for same order — duplicate payment",
+        "opening_message": (
+            "I was charged ₹4999 twice for my Banarasi Silk Saree order (ORD-EC-1200). "
+            "Two identical charges appeared on my credit card within 2 minutes on April 20. "
+            "My email is fatima.sheikh@email.com. I need the duplicate refunded immediately."
+        ),
+        "follow_up_info": "Order ORD-EC-1200. Delivered April 23. Both charges same amount and date.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "fatima.sheikh@email.com",
+        "related_order_ids": ["ORD-EC-1200"],
+    },
+    {
+        "id": "MDTKT-015",
+        "category": "e_commerce",
+        "priority": "high",
+        "subject": "Air purifier delivered to wrong address",
+        "opening_message": (
+            "My air purifier (ORD-EC-1201, ₹7999) was delivered to '7 Marine Drive' "
+            "but my address is '7 Marine Lines'. I was home all day and never received it. "
+            "The delivery confirmation shows a photo of a completely different building. "
+            "My email is fatima.sheikh@email.com. I need this resolved urgently."
+        ),
+        "follow_up_info": "Order ORD-EC-1201. Correct address: 7 Marine Lines, Mumbai. Delivered to: 7 Marine Drive, Mumbai.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 6,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "fatima.sheikh@email.com",
+        "related_order_ids": ["ORD-EC-1201"],
+    },
+    {
+        "id": "MDTKT-016",
+        "category": "e_commerce",
+        "priority": "low",
+        "subject": "Loyalty points not credited after purchase",
+        "opening_message": (
+            "I bought a Fitness Tracker for ₹2999 (order ORD-EC-1202) and was supposed "
+            "to earn 300 loyalty points. It's been a week and my points balance hasn't "
+            "changed. My email is geeta.nambiar@email.com. Where are my points?"
+        ),
+        "follow_up_info": "Order ORD-EC-1202. Delivered April 18. Points due: 300. Points credited: 0.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 4,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "geeta.nambiar@email.com",
+        "related_order_ids": ["ORD-EC-1202"],
+    },
+    {
+        "id": "MDTKT-017",
+        "category": "e_commerce",
+        "priority": "medium",
+        "subject": "Order placed but stuck on hold — no explanation given",
+        "opening_message": (
+            "I ordered a Smartwatch for ₹5499 (ORD-EC-1203) this morning and it's been "
+            "sitting on 'On Hold' status all day. No email, no explanation. I need this "
+            "for a gift tomorrow. My email is kiran.reddy@email.com. What's the issue?"
+        ),
+        "follow_up_info": "Order ORD-EC-1203. Hold reason: account_suspended. Customer unaware of suspension.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 5,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": "kiran.reddy@email.com",
+        "related_order_ids": ["ORD-EC-1203"],
+    },
+    {
+        "id": "MDTKT-018",
+        "category": "e_commerce",
+        "priority": "medium",
+        "subject": "Promo code SAVE500 not applied at checkout",
+        "opening_message": (
+            "I used promo code SAVE500 when buying my Mechanical Keyboard (ORD-EC-1204) "
+            "and the app showed the discount during checkout, but I was charged the full "
+            "₹3499 with no discount applied. My email is vikram.singh@outlook.com. "
+            "I want the ₹500 credited back."
+        ),
+        "follow_up_info": "Order ORD-EC-1204. Promo code SAVE500. Expected discount: ₹500. Actual discount: ₹0.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "vikram.singh@outlook.com",
+        "related_order_ids": ["ORD-EC-1204"],
+    },
+    {
+        "id": "MDTKT-019",
+        "category": "e_commerce",
+        "priority": "low",
+        "subject": "Received wrong size — want to exchange for size L",
+        "opening_message": (
+            "I ordered a Kurta Set in Size L (ORD-EC-1205) but received Size M. "
+            "I'd like to exchange it for the correct size. The item is unused with "
+            "tags on. My email is anita.desai@gmail.com. How do I initiate an exchange?"
+        ),
+        "follow_up_info": "Order ORD-EC-1205. Item: Kurta Set. Received: Size M. Requested: Size L.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 4,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "anita.desai@gmail.com",
+        "related_order_ids": ["ORD-EC-1205"],
+    },
+    {
+        "id": "MDTKT-020",
+        "category": "e_commerce",
+        "priority": "medium",
+        "subject": "Refund shows processed but money not in my account",
+        "opening_message": (
+            "My refund for a Silk Saree (ORD-EC-7789, ₹3499) was processed on April 20 "
+            "but I still haven't received the money in my bank account. It's been 4 days. "
+            "My email is anita.desai@gmail.com. My bank says no credit has arrived. "
+            "Is the refund actually going to my account?"
+        ),
+        "follow_up_info": "Order ORD-EC-7789. Refund processed April 20 via Net Banking. Bank confirms no credit received.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": "anita.desai@gmail.com",
+        "related_order_ids": ["ORD-EC-7789"],
+    },
+    {
+        "id": "MDTKT-021",
+        "category": "e_commerce",
+        "priority": "high",
+        "subject": "Platinum member demanding priority — delayed return resolution",
+        "opening_message": (
+            "I am a Platinum loyalty member and I expect priority service. My return "
+            "for defective headphones (ORD-EC-3345, ₹2499) was initiated 3 days ago "
+            "and I have heard NOTHING. Platinum members are supposed to get 24-hour "
+            "resolution. This is unacceptable. My email is meera.nair@email.com."
+        ),
+        "follow_up_info": "Order ORD-EC-3345. Return initiated April 21. Platinum tier member, 24-hour SLA applies.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "meera.nair@email.com",
+        "related_order_ids": ["ORD-EC-3345"],
+    },
+
+    # ── Ticket Booking (MDTKT-022 to MDTKT-028) ───────────────────────────────
+    {
+        "id": "MDTKT-022",
+        "category": "ticket_booking",
+        "priority": "high",
+        "subject": "Concert rescheduled — want refund instead of new date",
+        "opening_message": (
+            "I got an email saying the Arijit Singh concert (ORD-TB-1300) has been "
+            "rescheduled from April 30 to June 15. I cannot make the new date — I'll be "
+            "travelling. I paid ₹4500 for two tickets. My email is ravi.tiwari@yahoo.com. "
+            "I want a full refund, not a reschedule."
+        ),
+        "follow_up_info": "Order ORD-TB-1300. Rescheduled: April 30 → June 15. Reason: artist_unavailable. 2 tickets.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "ravi.tiwari@yahoo.com",
+        "related_order_ids": ["ORD-TB-1300"],
+    },
+    {
+        "id": "MDTKT-023",
+        "category": "ticket_booking",
+        "priority": "medium",
+        "subject": "Booked wrong event by mistake — can I switch?",
+        "opening_message": (
+            "I accidentally booked 'Punjabi Night — DJ Sukh' (ORD-TB-1301) instead of "
+            "'Bollywood Night — DJ Ravi' at the same venue. Both events are this weekend. "
+            "Can I transfer my booking? My email is tanvi.mehta@hotmail.com. "
+            "I paid ₹1800 and I realised the mistake immediately after booking."
+        ),
+        "follow_up_info": "Order ORD-TB-1301. Booked: Punjabi Night (April 27). Intended: Bollywood Night (same weekend).",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 5,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": "tanvi.mehta@hotmail.com",
+        "related_order_ids": ["ORD-TB-1301"],
+    },
+    {
+        "id": "MDTKT-024",
+        "category": "ticket_booking",
+        "priority": "critical",
+        "subject": "Cricket match tickets under review — event is TOMORROW",
+        "opening_message": (
+            "My tickets for India vs Australia T20 (ORD-TB-1302) are under review for "
+            "'payment verification' but the match is TOMORROW at 7:30PM! I paid ₹2200 "
+            "via UPI and the money was debited. I cannot go to the match without confirmed "
+            "tickets. My email is ravi.tiwari@yahoo.com. Please resolve this NOW."
+        ),
+        "follow_up_info": "Order ORD-TB-1302. Match: April 25. Review reason: payment_verification_pending. UPI payment confirmed by bank.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "account_access_restored",
+        "ideal_max_steps": 4,
+        "customer_persona": "impatient",
+        "task": "multi_domain",
+        "customer_email": "ravi.tiwari@yahoo.com",
+        "related_order_ids": ["ORD-TB-1302"],
+    },
+    {
+        "id": "MDTKT-025",
+        "category": "ticket_booking",
+        "priority": "low",
+        "subject": "Never received booking confirmation email",
+        "opening_message": (
+            "I booked tickets for the Bangalore Literature Festival (ORD-TB-1303) on "
+            "April 21 and paid ₹599 via Debit Card. I never received a confirmation "
+            "email. My email is suresh.kumar@email.com. I'm worried the booking didn't "
+            "go through even though the money was deducted."
+        ),
+        "follow_up_info": "Order ORD-TB-1303. Status: confirmed. Confirmation email issue. Event: May 8.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 4,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "suresh.kumar@email.com",
+        "related_order_ids": ["ORD-TB-1303"],
+    },
+    {
+        "id": "MDTKT-026",
+        "category": "ticket_booking",
+        "priority": "medium",
+        "subject": "Refund for cancelled classical concert not received",
+        "opening_message": (
+            "The Classical Music Evening I booked (ORD-TB-8899) was cancelled and the "
+            "refund of ₹1500 was supposedly processed on April 5. It's now April 24 "
+            "and I still don't see it in my account. My email is deepa.iyer@gmail.com. "
+            "Where is my refund?"
+        ),
+        "follow_up_info": "Order ORD-TB-8899. Refund ₹1500 processed April 5 via Credit Card. Customer says not received.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "deepa.iyer@gmail.com",
+        "related_order_ids": ["ORD-TB-8899"],
+    },
+    {
+        "id": "MDTKT-027",
+        "category": "ticket_booking",
+        "priority": "medium",
+        "subject": "Waitlist #2847 for Coldplay — want to cancel and get refund",
+        "opening_message": (
+            "I'm on the waitlist for Coldplay India Tour (ORD-TB-1304), position #2847. "
+            "The event is November 18 and at this rate I don't think I'll get a ticket. "
+            "I paid ₹8500 which was charged upfront. My email is deepa.iyer@gmail.com. "
+            "Can I cancel the waitlist and get a full refund?"
+        ),
+        "follow_up_info": "Order ORD-TB-1304. Waitlist position: 2847. Event: Nov 18. Amount paid: ₹8500.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "refund_initiated",
+        "ideal_max_steps": 5,
+        "customer_persona": "polite",
+        "task": "multi_domain",
+        "customer_email": "deepa.iyer@gmail.com",
+        "related_order_ids": ["ORD-TB-1304"],
+    },
+    {
+        "id": "MDTKT-028",
+        "category": "ticket_booking",
+        "priority": "low",
+        "subject": "Order number not found — need to verify my booking",
+        "opening_message": (
+            "Hi, I booked IPL tickets a few months ago and want to verify my booking. "
+            "My order reference is ORD-TB-0099 but I can't find it in my account. "
+            "My email is suresh.kumar@email.com. Can you check if this order exists?"
+        ),
+        "follow_up_info": "Order ORD-TB-0099 does not exist in the system. Customer may have wrong reference number.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 5,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": "suresh.kumar@email.com",
+        "related_order_ids": [],
+    },
+
+    # ── Edge Cases (MDTKT-029 to MDTKT-030) ───────────────────────────────────
+    {
+        "id": "MDTKT-029",
+        "category": "food_delivery",
+        "priority": "medium",
+        "subject": "Confused between two orders — which one was refunded?",
+        "opening_message": (
+            "I have two recent orders with you. One from Biryani House (ORD-FD-8821) "
+            "and one from Chinese Garden (ORD-FD-2200). I think a refund I requested "
+            "last week was applied to the wrong order. My email is sarah.jones@email.com. "
+            "Can you check both orders and tell me their current status?"
+        ),
+        "follow_up_info": "ORD-FD-8821: status delivered. ORD-FD-2200: status delivered. Neither has pending refund.",
+        "required_info_before_close": ["account_email", "order_id"],
+        "expected_resolution_type": "billing_clarification",
+        "ideal_max_steps": 6,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": "sarah.jones@email.com",
+        "related_order_ids": ["ORD-FD-8821", "ORD-FD-2200"],
+    },
+    {
+        "id": "MDTKT-030",
+        "category": "food_delivery",
+        "priority": "medium",
+        "subject": "Cannot place new order — app showing error",
+        "opening_message": (
+            "I've been trying to order food for the past hour but the app keeps saying "
+            "'Unable to process request'. I've tried uninstalling and reinstalling. "
+            "My email is amit.gupta@hotmail.com. Is there something wrong with my account?"
+        ),
+        "follow_up_info": "Customer account is suspended. Customer is unaware. Last order ORD-FD-4433 was delivered normally.",
+        "required_info_before_close": ["account_email"],
+        "expected_resolution_type": "account_access_restored",
+        "ideal_max_steps": 5,
+        "customer_persona": "confused",
+        "task": "multi_domain",
+        "customer_email": "amit.gupta@hotmail.com",
+        "related_order_ids": ["ORD-FD-4433"],
+    },
+]
+
+TICKETS.extend(MULTI_DOMAIN_TICKETS)
+
+
 class TicketStore:
     def __init__(self) -> None:
         self._by_task: dict[str, list[dict]] = {
             "easy": [], "medium": [], "hard": [], "nightmare": [],
+            "multi_domain": [],
         }
         for ticket in TICKETS:
             task = ticket["task"]

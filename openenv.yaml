@@ -124,6 +124,19 @@ tasks:
     drift_probability: 1.0
     initial_frustration: 0.7
     hinglish_enabled: true
+  - name: multi_domain
+    description: >
+      Multi-domain DB task — agent must use query_user_profile / query_order_details
+      to look up real customer and order data before responding. Tests grounded
+      response generation across food_delivery, e_commerce, and ticket_booking domains.
+      Rewards grounded citations and penalises hallucinated facts.
+      Primary demo target for before/after training comparison on DB usage.
+    max_steps: 8
+    difficulty: 2
+    active_levels: [1]
+    drift_probability: 0.0
+    initial_frustration: 0.1
+    hinglish_enabled: false
 action_space:
   type: ActionType
   values:
@@ -132,6 +145,9 @@ action_space:
     - escalate
     - close
     - request_info
+    # L1 DB queries (internal, no customer reply)
+    - query_user_profile
+    - query_order_details
     # L2 Supervisor
     - supervisor_approve
     - supervisor_reject
@@ -155,6 +171,7 @@ observation_space:
   max_steps: int
   is_done: bool
   task: string
+  retrieved_data: "dict{users: dict{email: user_record|'not_found'}, orders: dict{order_id: order_record|'not_found'}}"
   # Hierarchy fields (Round 2)
   active_role: "support_agent | supervisor | manager"
   supervisor_feedback: "string | null"

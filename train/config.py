@@ -62,16 +62,18 @@ class TrainConfig:
     # ── Curriculum ────────────────────────────────────────────────────────────
     # Stages in order — advance when eval mean_score >= curriculum_threshold
     curriculum_stages: list = field(default_factory=lambda: [
-        "curriculum_basic",
-        "curriculum_supervisor",
-        "curriculum_full_hierarchy",
-        "curriculum_nightmare",
+        "curriculum_basic",           # stage 0: L1 only, no drift
+        "curriculum_supervisor",      # stage 1: L1+L2, 20% drift
+        "curriculum_full_hierarchy",  # stage 2: L1+L2+L3, 80% drift
+        "curriculum_nightmare",       # stage 3: all levels, 100% drift, Hinglish
+        "multi_domain",               # stage 4: DB-grounded queries, 30 diverse tickets
     ])
     curriculum_thresholds: list = field(default_factory=lambda: [
         0.65,   # advance from basic
         0.60,   # advance from supervisor
         0.55,   # advance from full_hierarchy
-        # nightmare: final stage, no advancement
+        0.50,   # advance from nightmare → multi_domain
+        # multi_domain: final stage, no advancement
     ])
     eval_interval: int = 100       # gradient steps between evals
     eval_episodes: int = 50

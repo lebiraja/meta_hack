@@ -40,6 +40,9 @@ class ActionType(str, Enum):
     ESCALATE = "escalate"
     CLOSE = "close"
     REQUEST_INFO = "request_info"
+    # L1 DB query actions (internal, no customer reply)
+    QUERY_USER_PROFILE = "query_user_profile"
+    QUERY_ORDER_DETAILS = "query_order_details"
     # L2 Supervisor actions
     SUPERVISOR_APPROVE = "supervisor_approve"
     SUPERVISOR_REJECT = "supervisor_reject"
@@ -57,6 +60,8 @@ ACTION_ROLE_MAP: Dict[ActionType, AgentRole] = {
     ActionType.ESCALATE: AgentRole.SUPPORT_AGENT,
     ActionType.CLOSE: AgentRole.SUPPORT_AGENT,
     ActionType.REQUEST_INFO: AgentRole.SUPPORT_AGENT,
+    ActionType.QUERY_USER_PROFILE: AgentRole.SUPPORT_AGENT,
+    ActionType.QUERY_ORDER_DETAILS: AgentRole.SUPPORT_AGENT,
     ActionType.SUPERVISOR_APPROVE: AgentRole.SUPERVISOR,
     ActionType.SUPERVISOR_REJECT: AgentRole.SUPERVISOR,
     ActionType.SUPERVISOR_FEEDBACK: AgentRole.SUPERVISOR,
@@ -70,6 +75,13 @@ ACTION_ROLE_MAP: Dict[ActionType, AgentRole] = {
 L1_ACTION_TYPES = {
     ActionType.RESPOND, ActionType.ESCALATE,
     ActionType.CLOSE, ActionType.REQUEST_INFO,
+    ActionType.QUERY_USER_PROFILE, ActionType.QUERY_ORDER_DETAILS,
+}
+
+# DB query action types (internal lookups, no customer reply)
+DB_QUERY_ACTION_TYPES = {
+    ActionType.QUERY_USER_PROFILE,
+    ActionType.QUERY_ORDER_DETAILS,
 }
 L2_ACTION_TYPES = {
     ActionType.SUPERVISOR_APPROVE, ActionType.SUPERVISOR_REJECT,
@@ -87,6 +99,9 @@ class Action(BaseModel):
     action_type: ActionType
     message: Optional[str] = Field(default=None, max_length=2000)
     reason: Optional[str] = Field(default=None, max_length=500)
+    # DB query fields (L1 internal actions)
+    email: Optional[str] = Field(default=None, max_length=254, description="Email for query_user_profile")
+    order_id: Optional[str] = Field(default=None, max_length=100, description="Order ID for query_order_details")
     # Hierarchy fields (default for backward compat)
     role: AgentRole = Field(default=AgentRole.SUPPORT_AGENT)
     internal_note: Optional[str] = Field(
@@ -110,6 +125,13 @@ class Action(BaseModel):
         if at == ActionType.ESCALATE:
             if not self.reason or not self.reason.strip():
                 raise ValueError("reason cannot be empty when action_type is 'escalate'")
+        # DB query validations
+        if at == ActionType.QUERY_USER_PROFILE:
+            if not self.email or not self.email.strip():
+                raise ValueError("email required for query_user_profile")
+        if at == ActionType.QUERY_ORDER_DETAILS:
+            if not self.order_id or not self.order_id.strip():
+                raise ValueError("order_id required for query_order_details")
         # L2 validations
         if at == ActionType.SUPERVISOR_FEEDBACK:
             if not self.feedback_to_agent or not self.feedback_to_agent.strip():
@@ -168,6 +190,11 @@ class Observation(BaseModel):
     unresolved_issues: List[str]
     is_done: bool
     task: str
+    # DB query results (accumulated across episode)
+    retrieved_data: Dict[str, Dict[str, Any]] = Field(
+        default_factory=lambda: {"users": {}, "orders": {}},
+        description="Data fetched via query_user_profile / query_order_details"
+    )
     # ── Hierarchy fields (Round 2) ─────────────────────────────────────────────
     active_role: str = Field(
         default="support_agent",
@@ -228,4 +255,8 @@ class Ticket(BaseModel):
     task: Literal["easy", "medium", "hard", "nightmare",
                   "hierarchy_easy", "hierarchy_medium", "hierarchy_hard",
                   "curriculum_basic", "curriculum_supervisor",
-                  "curriculum_full_hierarchy", "curriculum_nightmare"]
+                  "curriculum_full_hierarchy", "curriculum_nightmare",
+                  "multi_domain"]
+    # DB linkage fields (optional; legacy tickets leave these empty)
+    customer_email: Optional[str] = None
+    related_order_ids: List[str] = Field(default_factory=list)

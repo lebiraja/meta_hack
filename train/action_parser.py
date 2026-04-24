@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 # Valid action types per role
-_L1_ACTIONS = {"respond", "escalate", "close", "request_info"}
+_L1_ACTIONS = {"respond", "escalate", "close", "request_info", "query_user_profile", "query_order_details"}
 _L2_ACTIONS = {"supervisor_approve", "supervisor_reject", "supervisor_feedback", "supervisor_escalate"}
 _L3_ACTIONS = {"manager_override", "manager_resolve", "manager_send_back"}
 
@@ -24,17 +24,19 @@ _ROLE_ACTIONS: Dict[str, set] = {
 
 # Fields required per action_type
 _REQUIRED_FIELDS: Dict[str, str] = {
-    "respond":              "message",
-    "request_info":         "message",
-    "close":                "message",
-    "escalate":             "reason",
-    "supervisor_approve":   "message",
-    "supervisor_reject":    "feedback_to_agent",
-    "supervisor_feedback":  "feedback_to_agent",
-    "supervisor_escalate":  "reason",
-    "manager_override":     "message",
-    "manager_resolve":      "message",
-    "manager_send_back":    "feedback_to_agent",
+    "respond":                "message",
+    "request_info":           "message",
+    "close":                  "message",
+    "escalate":               "reason",
+    "query_user_profile":     "email",
+    "query_order_details":    "order_id",
+    "supervisor_approve":     "message",
+    "supervisor_reject":      "feedback_to_agent",
+    "supervisor_feedback":    "feedback_to_agent",
+    "supervisor_escalate":    "reason",
+    "manager_override":       "message",
+    "manager_resolve":        "message",
+    "manager_send_back":      "feedback_to_agent",
 }
 
 # Fallback actions per role (used when parsing fails)

@@ -151,10 +151,12 @@ SCORING (know this to perform well):
 - RESOLUTION (40%): Use clear resolution language matching the ticket type (refund, fix, escalate). Be descriptive! Output over 60 characters to avoid terse penalties (-20% score).
 
 ACTION TYPES — output exactly one per step:
-- "respond"      -> send a message to the customer         -> requires: "message"
-- "request_info" -> ask for specific missing information   -> requires: "message"
-- "close"        -> close the ticket as resolved           -> requires: "message"
-- "escalate"     -> hand off to a specialist               -> requires: "reason" (NOT message)
+- "respond"               -> send a message to the customer          -> requires: "message"
+- "request_info"          -> ask for specific missing information    -> requires: "message"
+- "close"                 -> close the ticket as resolved            -> requires: "message"
+- "escalate"              -> hand off to a specialist                -> requires: "reason" (NOT message)
+- "query_user_profile"    -> look up customer account (internal)    -> requires: "email"
+- "query_order_details"   -> look up order details (internal)       -> requires: "order_id"
 
 OUTPUT FORMAT — return ONLY this JSON, no code fences, no preamble:
 {"action_type": "...", "message": "..."}   <- for respond / request_info / close
@@ -181,10 +183,12 @@ ABOVE THEM: A Manager handles escalated complex cases.
 {policy_section}
 
 ACTION TYPES — output exactly one per step:
-- "respond"      -> send a message to the customer  -> requires: "message"
-- "request_info" -> ask for missing information      -> requires: "message"
-- "close"        -> close the ticket as resolved     -> requires: "message"
-- "escalate"     -> hand off to specialist           -> requires: "reason"
+- "respond"               -> send a message to the customer          -> requires: "message"
+- "request_info"          -> ask for missing information             -> requires: "message"
+- "close"                 -> close the ticket as resolved            -> requires: "message"
+- "escalate"              -> hand off to specialist                  -> requires: "reason"
+- "query_user_profile"    -> look up customer account (internal)    -> requires: "email"
+- "query_order_details"   -> look up order details (internal)       -> requires: "order_id"
 
 SCORING: Empathy(30%) + Accuracy(25%) + Resolution(25%) + Efficiency(20%)
 Be warm, gather info from "Unresolved issues", use specific resolution language.
@@ -246,6 +250,19 @@ def _user_context(obs: dict) -> str:
     )
     if obs.get("environment_event"):
         ctx += f"\nENVIRONMENT EVENT: {obs['environment_event']}\n"
+
+    retrieved = obs.get("retrieved_data", {})
+    has_users = bool(retrieved.get("users"))
+    has_orders = bool(retrieved.get("orders"))
+    if has_users or has_orders:
+        ctx += "\n## KNOWN DATA (from internal DB — use verbatim, do NOT invent other facts)\n"
+        if has_users:
+            for email, record in retrieved["users"].items():
+                ctx += f"User({email}): {json.dumps(record, ensure_ascii=False)}\n"
+        if has_orders:
+            for oid, record in retrieved["orders"].items():
+                ctx += f"Order({oid}): {json.dumps(record, ensure_ascii=False)}\n"
+
     ctx += f"\nConversation:\n{history}\n\nOutput JSON only."
     return ctx
 

@@ -51,6 +51,8 @@ class StepRecord:
     efficiency_score: float = 0.0
     accuracy_score: float = 0.0
     role_rewards: dict = field(default_factory=dict)
+    # DB grounding signals (non-zero only during multi_domain episodes)
+    db_signals: dict = field(default_factory=dict)
 
 
 def aggregate_reward(episode: EpisodeRecord, config: TrainConfig) -> float:

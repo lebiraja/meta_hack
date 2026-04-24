@@ -31,16 +31,16 @@ def grade(session_state: dict[str, Any]) -> float:
         score += weights["all_levels_engaged"] * 0.5
 
     # 2. Escalation speed (within first 4 steps)
-    escalation_steps = [a["step"] for a in action_log if "escalat" in a["action_type"]]
-    if escalation_steps:
-        first = min(escalation_steps)
+    # Only count L1 escalate actions to avoid double-counting supervisor_escalate
+    l1_escalation_steps = [a["step"] for a in action_log if a["action_type"] == "escalate"]
+    sup_escalation_steps = [a["step"] for a in action_log if a["action_type"] == "supervisor_escalate"]
+    all_escalation_steps = l1_escalation_steps or sup_escalation_steps
+    if all_escalation_steps:
+        first = min(all_escalation_steps)
         if first <= 3:
             score += weights["escalation_speed"]
         elif first <= 5:
             score += weights["escalation_speed"] * 0.5
-    # Also check if supervisor escalated
-    if "supervisor_escalate" in action_types:
-        score += weights["escalation_speed"] * 0.3
 
     # 3. Urgency referenced
     all_reasons = " ".join(

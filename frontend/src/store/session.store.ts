@@ -22,7 +22,7 @@ interface SessionStore {
   error: string | null;
 
   resetSession: (task: TaskName) => Promise<void>;
-  submitStep: (action: Action) => Promise<void>;
+  submitStep: (action: Action, humanCustomerMessage?: string) => Promise<void>;
   clearSession: () => void;
   dismissError: () => void;
 }
@@ -61,12 +61,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
-  submitStep: async (action) => {
+  submitStep: async (action, humanCustomerMessage) => {
     const { sessionId } = get();
     if (!sessionId) return;
     set({ isLoading: true, error: null });
     try {
-      const res = await api.step(sessionId, action);
+      const res = await api.step(sessionId, action, humanCustomerMessage);
       set({
         observation: res.observation,
         reward: res.reward,

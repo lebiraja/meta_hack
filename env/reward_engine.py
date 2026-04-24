@@ -32,17 +32,12 @@ import re
 from typing import List, Optional, Dict, Any
 
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from env.models import Action, ActionType, Message, Reward
 from env.llm_judge import get_llm_judge
 
 _analyzer = SentimentIntensityAnalyzer()
-
-# Module-level TF-IDF singleton — reused across all calls
-_tfidf = TfidfVectorizer()
 
 # Resolution signal keywords per expected_resolution_type
 _RESOLUTION_SIGNALS: dict[str, list[str]] = {
@@ -117,12 +112,7 @@ def compute_loop_penalty(history: List[Message]) -> float:
         return 0.0
 
     char_sim = SequenceMatcher(None, last_two[0], last_two[1]).ratio()
-    try:
-        vec = _tfidf.fit_transform(last_two)
-        cos_sim = cosine_similarity(vec[0], vec[1])[0][0]
-        return -0.1 if (cos_sim > 0.80 or char_sim > 0.85) else 0.0
-    except Exception:
-        return -0.1 if char_sim > 0.85 else 0.0
+    return -0.1 if char_sim > 0.85 else 0.0
 
 
 def compute_resolution_score(
@@ -435,18 +425,20 @@ def compute_hierarchy_reward(
         hierarchy_score = max(0.0, min(1.0, hierarchy_score))
 
     # ── Ignored supervisor feedback penalty ────────────────────────────────────
+    _STOP = {"the", "a", "an", "is", "are", "was", "be", "to", "of", "in",
+             "you", "your", "for", "and", "or", "it", "this", "that", "i",
+             "me", "my", "we", "our", "with", "on", "at", "by", "not",
+             "please", "should", "must", "need", "more", "also", "next"}
     ignored_feedback_penalty = 0.0
     if hierarchy_state and role == "support_agent":
         feedback_history = hierarchy_state.get("supervisor_feedback_history", [])
         if len(feedback_history) > 0 and tone_msg:
-            # If supervisor gave feedback but agent's response doesn't reflect it
             last_feedback = feedback_history[-1].lower()
             if last_feedback and len(last_feedback) > 10:
-                # Simple check: does the agent's message address the feedback?
-                feedback_words = set(last_feedback.split())
-                msg_words = set(tone_msg.lower().split())
-                overlap = len(feedback_words & msg_words)
-                if overlap < 2:
+                # Check meaningful (non-stop) words from feedback appear in agent response
+                fb_words = set(last_feedback.split()) - _STOP
+                msg_words = set(tone_msg.lower().split()) - _STOP
+                if fb_words and len(fb_words & msg_words) < 1:
                     ignored_feedback_penalty = -0.15
 
     # ── Unnecessary manager escalation penalty ─────────────────────────────────

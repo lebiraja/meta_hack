@@ -196,7 +196,7 @@ class LLMJudge:
             return max(0.0, min(1.0, score))
         except Exception as e:
             logger.warning(f"LLM Judge call failed: {e}")
-            return 0.5  # neutral fallback
+            return 0.3  # below-neutral fallback — API failure should not reward
 
     @staticmethod
     def _format_history(history: List[Message], max_messages: int = 10) -> str:

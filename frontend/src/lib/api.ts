@@ -4,6 +4,7 @@ import type {
   ResetResponse,
   StepResponse,
   LeaderboardEntry,
+  ChatResponse,
 } from "@/types";
 
 const BASE_URL =
@@ -41,17 +42,28 @@ export const api = {
   reset: (task: TaskName) =>
     apiFetch<ResetResponse>(`/reset?task=${task}`, { method: "POST" }),
 
-  step: (sessionId: string, action: Action) =>
-    apiFetch<StepResponse>(`/step?session_id=${sessionId}`, {
+  step: (sessionId: string, action: Action, humanCustomerMessage?: string) => {
+    const params = new URLSearchParams({ session_id: sessionId });
+    if (humanCustomerMessage) {
+      params.set("human_customer_message", humanCustomerMessage);
+    }
+    return apiFetch<StepResponse>(`/step?${params.toString()}`, {
       method: "POST",
       body: JSON.stringify(action),
-    }),
+    });
+  },
 
   getState: (sessionId: string) =>
     apiFetch<Record<string, unknown>>(`/state/${sessionId}`),
 
   getReplay: (sessionId: string) =>
     apiFetch<Record<string, unknown>>(`/replay/${sessionId}`),
+
+  chat: (sessionId: string, message: string) =>
+    apiFetch<ChatResponse>("/chat", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, message }),
+    }),
 
   getLeaderboard: () => apiFetch<LeaderboardEntry[]>("/leaderboard"),
 

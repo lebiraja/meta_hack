@@ -40,7 +40,8 @@ from env.ticket_store import ticket_store
 _ALL_TASKS = ("easy", "medium", "hard", "nightmare",
               "hierarchy_easy", "hierarchy_medium", "hierarchy_hard",
               "curriculum_basic", "curriculum_supervisor",
-              "curriculum_full_hierarchy", "curriculum_nightmare")
+              "curriculum_full_hierarchy", "curriculum_nightmare",
+              "multi_domain")
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 structlog.configure(
@@ -247,6 +248,7 @@ def reset(
         "hierarchy_easy", "hierarchy_medium", "hierarchy_hard",
         "curriculum_basic", "curriculum_supervisor",
         "curriculum_full_hierarchy", "curriculum_nightmare",
+        "multi_domain",
     ] = Query(default="easy"),
     _key: str = Depends(verify_api_key),
 ):
@@ -265,8 +267,9 @@ def reset(
             detail=f"Server at capacity ({MAX_SESSIONS} concurrent sessions). Try again later.",
         )
 
-    # Auto-select environment class based on task prefix
-    is_hierarchical = task.startswith("hierarchy_") or task.startswith("curriculum_")
+    # Auto-select environment class based on task type
+    from env.environment import TASK_CONFIG
+    is_hierarchical = TASK_CONFIG.get(task, {}).get("hierarchical", False)
     if is_hierarchical:
         env = HierarchicalCustomerSupportEnv(task=task)
     else:

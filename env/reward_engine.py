@@ -238,6 +238,122 @@ def compute_keyword_stuffing_penalty(message: str) -> float:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# DB Signal Helper (grounded response rewards / hallucination penalties)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Patterns for detecting claimed facts in agent messages
+_FACT_PATTERNS = {
+    "email": re.compile(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", re.IGNORECASE),
+    "order_id": re.compile(r"\b(?:ORD|ORDER|#)[-\s]?[A-Z]{0,3}[-\s]?\d{3,}\b", re.IGNORECASE),
+    "amount": re.compile(r"₹\s*\d+|\brs\.?\s*\d+|\brupees?\s*\d+|\d+\s*(?:rupees?|inr)\b", re.IGNORECASE),
+    "date": re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}\b", re.IGNORECASE),
+}
+
+
+def compute_db_signals(
+    action: "Action",
+    ticket: dict,
+    history: List[Message],
+    retrieved_data: dict,
+) -> dict:
+    """
+    Compute DB-grounding reward signals for an action step.
+
+    Returns a dict of signal_name → float (positive = bonus, negative = penalty).
+    Returns all zeros when no DB queries have been made (backward-compatible).
+    """
+    from env.models import ActionType
+
+    signals: dict = {
+        "query_match_bonus": 0.0,
+        "grounded_response_bonus": 0.0,
+        "not_found_handling_bonus": 0.0,
+        "hallucination_penalty": 0.0,
+        "wasted_query_penalty": 0.0,
+    }
+
+    at = ActionType(action.action_type)
+    ticket_email = ticket.get("customer_email", "")
+    ticket_order_ids: List[str] = ticket.get("related_order_ids", [])
+    users_data: dict = retrieved_data.get("users", {})
+    orders_data: dict = retrieved_data.get("orders", {})
+
+    # ── Query match bonus ──────────────────────────────────────────────────────
+    if at == ActionType.QUERY_USER_PROFILE and action.email:
+        queried_email = action.email.strip().lower()
+        ticket_email_lower = ticket_email.lower() if ticket_email else ""
+        if ticket_email_lower and queried_email == ticket_email_lower:
+            signals["query_match_bonus"] = 0.08
+        elif queried_email and queried_email not in (
+            " ".join(m.content for m in history if m.role == "customer").lower()
+        ):
+            # Email never mentioned by customer — wasted query
+            signals["wasted_query_penalty"] = -0.08
+
+    if at == ActionType.QUERY_ORDER_DETAILS and action.order_id:
+        queried_oid = action.order_id.strip().upper()
+        if ticket_order_ids and queried_oid in [o.upper() for o in ticket_order_ids]:
+            signals["query_match_bonus"] = 0.08
+        elif queried_oid and queried_oid not in (
+            " ".join(m.content for m in history if m.role == "customer").upper()
+        ):
+            signals["wasted_query_penalty"] = -0.08
+
+    # ── Not-found handling bonus ───────────────────────────────────────────────
+    _GOOD_NOT_FOUND_ACTIONS = {
+        ActionType.REQUEST_INFO, ActionType.ESCALATE, ActionType.SUPERVISOR_ESCALATE,
+    }
+    any_not_found = (
+        "not_found" in users_data.values() or "not_found" in orders_data.values()
+    )
+    if any_not_found and at in _GOOD_NOT_FOUND_ACTIONS:
+        signals["not_found_handling_bonus"] = 0.08
+
+    # ── Grounded response bonus & hallucination penalty ────────────────────────
+    msg_text = (action.message or action.reason or "").lower()
+    if msg_text and at in {
+        ActionType.RESPOND, ActionType.CLOSE, ActionType.REQUEST_INFO,
+        ActionType.MANAGER_OVERRIDE, ActionType.MANAGER_RESOLVE,
+    }:
+        # Collect all verbatim field values from retrieved_data
+        grounded_values: List[str] = []
+        for user_record in users_data.values():
+            if isinstance(user_record, dict):
+                grounded_values.extend(str(v).lower() for v in user_record.values())
+        for order_record in orders_data.values():
+            if isinstance(order_record, dict):
+                for v in order_record.values():
+                    if isinstance(v, list):
+                        grounded_values.extend(str(i).lower() for i in v)
+                    else:
+                        grounded_values.append(str(v).lower())
+
+        if grounded_values:
+            # Bonus: message cites a verbatim value from retrieved_data
+            grounded = any(gv in msg_text for gv in grounded_values if len(gv) > 3)
+            if grounded:
+                signals["grounded_response_bonus"] = 0.10
+
+        # Penalty: message contains a specific fact pattern NOT in retrieved_data
+        # and NOT mentioned by the customer
+        customer_text = " ".join(
+            m.content for m in history if m.role == "customer"
+        ).lower()
+        all_known_text = customer_text + " " + " ".join(grounded_values)
+
+        for pat_name, pat in _FACT_PATTERNS.items():
+            for match in pat.finditer(msg_text):
+                claimed = match.group(0).lower()
+                if claimed not in all_known_text:
+                    signals["hallucination_penalty"] = -0.25
+                    break
+            if signals["hallucination_penalty"] < 0:
+                break
+
+    return signals
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Single-Agent Step Reward (Round 1 backward compat)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -248,6 +364,7 @@ def compute_step_reward(
     steps_used: int,
     max_steps: int,
     is_terminal: bool,
+    retrieved_data: Optional[Dict[str, Any]] = None,
 ) -> Reward:
     """
     Compute shaped reward for a single step.
@@ -276,6 +393,11 @@ def compute_step_reward(
         if ticket.get("required_info_before_close"):
             info_gathering_bonus = 0.1
 
+    # DB grounding signals (all zero when no queries made)
+    _rd = retrieved_data or {"users": {}, "orders": {}}
+    db_signals = compute_db_signals(action, ticket, history, _rd)
+    db_total = sum(db_signals.values())
+
     raw = (
         0.40 * resolution_score
         + 0.20 * tone_score
@@ -286,6 +408,7 @@ def compute_step_reward(
         + escalation_penalty
         + stuffing_penalty
         + info_gathering_bonus
+        + db_total
     )
 
     value = float(np.clip(raw, 0.0, 1.0))
@@ -303,6 +426,7 @@ def compute_step_reward(
             "escalation_penalty": escalation_penalty,
             "keyword_stuffing_penalty": stuffing_penalty,
             "info_gathering_bonus": info_gathering_bonus,
+            **{f"db_{k}": v for k, v in db_signals.items()},
             "is_terminal": is_terminal,
         },
     )
@@ -322,6 +446,7 @@ def compute_hierarchy_reward(
     policy_text: str = "",
     hierarchy_state: Optional[Dict[str, Any]] = None,
     use_llm_judge: bool = True,
+    retrieved_data: Optional[Dict[str, Any]] = None,
 ) -> Reward:
     """
     Compute the full hierarchical reward with LLM-as-Judge components.
@@ -447,6 +572,11 @@ def compute_hierarchy_reward(
         if ticket.get("priority") in ("low", "medium"):
             unnecessary_manager_penalty = -0.20
 
+    # ── DB grounding signals ───────────────────────────────────────────────────
+    _rd = retrieved_data or {"users": {}, "orders": {}}
+    db_signals = compute_db_signals(action, ticket, history, _rd)
+    db_total = sum(db_signals.values())
+
     # ── Compute overall raw reward ─────────────────────────────────────────────
     if is_terminal:
         raw = (
@@ -463,6 +593,7 @@ def compute_hierarchy_reward(
             + escalation_penalty
             + ignored_feedback_penalty
             + unnecessary_manager_penalty
+            + db_total
         )
     else:
         # Non-terminal: lighter weights, focus on step-level quality
@@ -477,6 +608,7 @@ def compute_hierarchy_reward(
             + stuffing_penalty
             + ignored_feedback_penalty
             + unnecessary_manager_penalty
+            + db_total
         )
 
     value = float(np.clip(raw, 0.0, 1.0))
@@ -533,6 +665,7 @@ def compute_hierarchy_reward(
             "keyword_stuffing_penalty": stuffing_penalty,
             "ignored_feedback_penalty": ignored_feedback_penalty,
             "unnecessary_manager_penalty": unnecessary_manager_penalty,
+            **{f"db_{k}": v for k, v in db_signals.items()},
             "is_terminal": is_terminal,
             "role": role,
         },

@@ -29,6 +29,11 @@ class EvalResult:
     mean_role_rewards: Dict[str, float] = field(default_factory=dict)
     invalid_rate: float = 0.0
     n_episodes: int = 0
+    # DB grounding metrics (non-zero only for multi_domain episodes)
+    mean_db_query_match: float = 0.0       # query was relevant to the ticket
+    mean_db_grounded_response: float = 0.0 # response cited verbatim DB data
+    mean_db_hallucination: float = 0.0     # agent invented facts not in DB
+    mean_db_wasted_query: float = 0.0      # query had no bearing on the ticket
 
     @property
     def mean(self) -> float:
@@ -117,6 +122,16 @@ def evaluate(
                     vals.append(s.role_rewards[role])
         mean_role[role] = sum(vals) / len(vals) if vals else 0.0
 
+    # DB grounding metrics (non-zero only for multi_domain episodes)
+    def _mean_db_signal(key: str) -> float:
+        vals = [
+            s.db_signals.get(key, 0.0)
+            for ep in valid_eps
+            for s in ep.steps
+            if s.db_signals
+        ]
+        return sum(vals) / len(vals) if vals else 0.0
+
     return EvalResult(
         mean_final_score=mean_final,
         mean_step_reward=mean_step,
@@ -129,4 +144,8 @@ def evaluate(
         mean_role_rewards=mean_role,
         invalid_rate=len(invalid_eps) / n,
         n_episodes=n,
+        mean_db_query_match=_mean_db_signal("query_match_bonus"),
+        mean_db_grounded_response=_mean_db_signal("grounded_response_bonus"),
+        mean_db_hallucination=_mean_db_signal("hallucination_penalty"),
+        mean_db_wasted_query=_mean_db_signal("wasted_query_penalty"),
     )

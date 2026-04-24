@@ -11,11 +11,13 @@ from typing import Optional, Dict, Any, List
 from env.models import (
     Action, ActionType, AgentRole, Message, Observation, Reward,
     HierarchyState, L1_ACTION_TYPES, L2_ACTION_TYPES, L3_ACTION_TYPES,
+    DB_QUERY_ACTION_TYPES,
 )
 from env.reward_engine import compute_step_reward, compute_hierarchy_reward, _INFO_PATTERNS
 from env.ticket_store import ticket_store
 from env.customer_simulator import get_customer_simulator
 from env.policy_engine import PolicyEngine
+import env.user_db as user_db
 
 # ── Task config ────────────────────────────────────────────────────────────────
 # Each task specifies:
@@ -65,6 +67,10 @@ TASK_CONFIG = {
     "curriculum_nightmare":      {"max_steps": 18, "hierarchical": True, "active_levels": [1, 2, 3],
                                   "drift_probability": 1.0, "initial_frustration": 0.7,
                                   "hinglish_enabled": True, "multi_drift": True, "ticket_pool": "nightmare"},
+    # ── Multi-domain DB task (showcases grounded query actions) ───────────────
+    "multi_domain":              {"max_steps": 8,  "hierarchical": True, "active_levels": [1],
+                                  "drift_probability": 0.0, "initial_frustration": 0.1,
+                                  "hinglish_enabled": False, "multi_drift": False, "ticket_pool": "multi_domain"},
 }
 
 # ── Legacy follow-ups (fallback for single-agent mode) ─────────────────────────
@@ -138,6 +144,7 @@ class CustomerSupportEnv:
         self._done: bool = False
         self._action_log: list[dict] = []
         self._is_hierarchical = TASK_CONFIG[task].get("hierarchical", False)
+        self._retrieved_data: dict = {"users": {}, "orders": {}}
 
     def reset(self) -> Observation:
         cfg = TASK_CONFIG[self.task]
@@ -149,6 +156,7 @@ class CustomerSupportEnv:
         self._sentiment_history = []
         self._done = False
         self._action_log = []
+        self._retrieved_data = {"users": {}, "orders": {}}
         return self._build_observation()
 
     def step(
@@ -166,6 +174,10 @@ class CustomerSupportEnv:
                 f"Use a hierarchy_* or curriculum_* task for multi-role workflows."
             )
 
+        # DB query actions are handled early — no customer reply, no supervisor
+        if at in DB_QUERY_ACTION_TYPES:
+            return self._handle_query_action(action)
+
         self._step += 1
         is_terminal = self._is_terminal_action(action)
         agent_content = action.message or action.reason or f"[{action.action_type}]"
@@ -175,6 +187,7 @@ class CustomerSupportEnv:
             action=action, ticket=self._ticket, history=self._history,
             steps_used=self._step, max_steps=self._max_steps,
             is_terminal=is_terminal or self._step >= self._max_steps,
+            retrieved_data=self._retrieved_data,
         )
         self._update_sentiment(action, reward.tone_score)
         self._action_log.append({
@@ -204,6 +217,7 @@ class CustomerSupportEnv:
             "step": self._step, "max_steps": self._max_steps,
             "sentiment": self._sentiment, "done": self._done,
             "action_log": self._action_log,
+            "retrieved_data": dict(self._retrieved_data),
         }
 
     def _build_observation(self) -> Observation:
@@ -218,7 +232,53 @@ class CustomerSupportEnv:
             customer_sentiment=round(self._sentiment, 3),
             mood_trajectory=self._sentiment_history[-3:],
             unresolved_issues=unresolved, is_done=self._done, task=self.task,
+            retrieved_data=dict(self._retrieved_data),
         )
+
+    def _handle_query_action(
+        self, action: Action
+    ) -> tuple[Observation, Reward, bool, dict]:
+        """Execute a DB query action (costs 1 step, no customer reply, no supervisor)."""
+        assert self._ticket is not None
+        self._step += 1
+        at = ActionType(action.action_type)
+
+        if at == ActionType.QUERY_USER_PROFILE:
+            email = (action.email or "").strip()
+            result = user_db.get_user(email)
+            self._retrieved_data["users"][email] = result
+            summary = f"[QUERY] user_profile({email}) → {'found' if result != 'not_found' else 'not_found'}"
+        else:  # QUERY_ORDER_DETAILS
+            oid = (action.order_id or "").strip().upper()
+            result = user_db.get_order(oid)
+            self._retrieved_data["orders"][oid] = result
+            summary = f"[QUERY] order_details({oid}) → {'found' if result != 'not_found' else 'not_found'}"
+
+        self._history.append(Message(role="system", content=summary))
+
+        # Minimal reward — actual signal computed in reward_engine via DB signals
+        from env.reward_engine import compute_db_signals
+        db_signals = compute_db_signals(action, self._ticket, self._history, self._retrieved_data)
+        raw_db = sum(db_signals.values())
+        import numpy as np
+        reward = Reward(
+            value=float(np.clip(0.5 + raw_db, 0.0, 1.0)),
+            resolution_score=0.0, tone_score=0.5,
+            efficiency_score=0.0, accuracy_score=0.0,
+            breakdown={"db_signals": db_signals, "is_terminal": False, "action_type": at.value},
+        )
+
+        self._action_log.append({
+            "step": self._step, "action_type": action.action_type,
+            "email": action.email, "order_id": action.order_id,
+            "reward": reward.value,
+        })
+
+        done = self._step >= self._max_steps
+        self._done = done
+        obs = self._build_observation()
+        info = {"ticket_id": self._ticket["id"], "action_log": self._action_log, "error": None}
+        return obs, reward, done, info
 
     def _is_terminal_action(self, action: Action) -> bool:
         return action.action_type in (ActionType.CLOSE, ActionType.ESCALATE)
@@ -333,6 +393,10 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
 
         at = ActionType(action.action_type)
 
+        # DB query actions bypass the L1/L2/L3 branch entirely
+        if at in DB_QUERY_ACTION_TYPES:
+            return self._handle_query_action(action)
+
         if at in L1_ACTION_TYPES:
             return self._step_support(action, human_customer_message=human_customer_message)
         elif at in L2_ACTION_TYPES:
@@ -378,6 +442,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
             hierarchy_state=self._hierarchy.model_dump(),
             use_llm_judge=True,
+            retrieved_data=self._retrieved_data,
         )
         self._update_sentiment(action, reward.tone_score)
 
@@ -430,6 +495,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
             hierarchy_state=self._hierarchy.model_dump(),
             use_llm_judge=True,
+            retrieved_data=self._retrieved_data,
         )
 
         self._action_log.append({
@@ -545,6 +611,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
             hierarchy_state=self._hierarchy.model_dump(),
             use_llm_judge=True,
+            retrieved_data=self._retrieved_data,
         )
 
         self._action_log.append({
@@ -570,6 +637,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             customer_sentiment=round(self._sentiment, 3),
             mood_trajectory=self._sentiment_history[-3:],
             unresolved_issues=unresolved, is_done=self._done, task=self.task,
+            retrieved_data=dict(self._retrieved_data),
             active_role=self._active_role.value,
             supervisor_feedback=self._supervisor_feedback,
             manager_directive=self._manager_directive,

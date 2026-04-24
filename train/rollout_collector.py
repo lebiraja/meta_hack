@@ -19,11 +19,12 @@ from train.model_utils import model_generate
 from train.prompt_builder import build_prompt_string
 from train.reward_aggregator import EpisodeRecord, StepRecord
 
-# Curriculum task → use hierarchical prompts?
+# Tasks that use HierarchicalCustomerSupportEnv → need role-specific prompts
 _HIERARCHICAL_TASKS = {
     "hierarchy_easy", "hierarchy_medium", "hierarchy_hard",
     "curriculum_basic", "curriculum_supervisor",
     "curriculum_full_hierarchy", "curriculum_nightmare",
+    "multi_domain",
 }
 
 
@@ -102,6 +103,7 @@ def run_one_episode(
         done = result.done
 
         # ── Record ─────────────────────────────────────────────────────────────
+        db_signals = result.reward_breakdown.get("db_signals", {}) if result.reward_breakdown else {}
         episode.steps.append(StepRecord(
             prompt=prompt,
             completion=completion,
@@ -117,6 +119,7 @@ def run_one_episode(
             efficiency_score=result.efficiency_score,
             accuracy_score=result.accuracy_score,
             role_rewards=result.role_rewards,
+            db_signals=db_signals,
         ))
 
         obs = result.observation

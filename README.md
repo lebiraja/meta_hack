@@ -33,7 +33,7 @@ short_description: 3-level hierarchical multi-agent RL env with dynamic customer
 [![FastAPI](https://img.shields.io/badge/FastAPI-2.1.0-009688?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-[**🚀 Live Demo**](https://huggingface.co/spaces/lebiraja/customer-support-env) · [**📓 Colab Notebook**](https://colab.research.google.com/) · [**📄 OpenEnv YAML**](openenv.yaml)
+[**🚀 Live Demo**](https://huggingface.co/spaces/lebiraja/customer-support-env) · [**📓 Colab Notebook**](https://colab.research.google.com/drive/1OSPzLQD6H9jlxUY8p_jUyx_T_xrj31Ph?usp=sharing) · [**📄 OpenEnv YAML**](openenv.yaml)
 
 </div>
 
@@ -55,19 +55,40 @@ short_description: 3-level hierarchical multi-agent RL env with dynamic customer
 
 ## 🔥 Problem & Motivation
 
-Indian enterprises lose an estimated **$1.3 billion annually** to poor customer support. The root causes are systemic:
+### The Pain We Lived
+
+As regular users of food delivery, cab booking, and e-commerce apps, we repeatedly hit the same wall with customer support. The pattern was always identical — and always painful:
+
+1. A bot greets you with zero context about your order, payment, or past interactions
+2. You explain the entire issue from scratch
+3. The bot can't help — you get transferred to a human agent
+4. That agent lacks the authority to resolve anything (refund, cancellation, compensation) and escalates to a supervisor
+5. The supervisor may escalate further to a manager
+6. You've now repeated yourself 3 times, waited 40+ minutes, and still have no resolution
+
+This isn't an edge case. It's the default experience across Indian digital services — especially during festival sales, late-night orders, and critical payment failures. The consequences are real:
 
 | Pain Point | Reality |
 |---|---|
-| **Hierarchical decision-making** | 73% of Indian enterprise support tickets pass through 2+ approval tiers before resolution |
+| **Hierarchical bottlenecks** | 73% of Indian enterprise tickets pass through 2+ approval tiers before resolution |
 | **SLA breaches** | Average first-response time is **47 minutes** vs. the 15-minute SLA commitment |
 | **Language switching** | 68% of frustrated Indian customers switch to Hinglish mid-conversation |
-| **Policy churn** | Enterprise refund/escalation policies change 3–4 times monthly (seasonal sales, outages, regulatory updates) |
-| **Training gap** | New agents take 6+ weeks to learn escalation protocols; error rates remain high even after training |
+| **Policy churn** | Refund/escalation policies change 3–4× monthly (seasonal sales, outages, regulatory updates) |
+| **Training gap** | New agents take 6+ weeks to learn escalation protocols; error rates stay high even after training |
 
-Existing RL environments for customer support treat the problem as a single-agent, static-policy, English-only task. **None** model the hierarchical approval chain, mid-conversation policy drift, or code-switching behavior that define real Indian enterprise support.
+### Our Solution
 
-> **Our environment is the first to combine all four:** a 3-level agent hierarchy with role-specific rewards, a dynamic LLM-driven customer that degrades into Hinglish under frustration, mid-episode policy drift that forces real-time adaptation, and a progressive 4-stage curriculum that teaches agents to handle each challenge incrementally.
+We built a **hierarchical multi-agent customer support environment** using OpenEnv that mirrors how a well-functioning human support organisation actually works — instead of a flat bot-to-human handoff, our system trains a coordinated 3-level AI team:
+
+| Level | Role | Responsibility |
+|-------|------|----------------|
+| **L1 — Support Agent** | Front-line interaction | Gathers information, attempts resolution, escalates when needed |
+| **L2 — Supervisor** | Real-time quality gate | Reviews every L1 action, provides feedback, enforces policy |
+| **L3 — Manager** | Final authority | Handles high-stakes escalations, resolves conflicts, makes authoritative decisions |
+
+All agents share full context, follow role-specific instructions, and adapt dynamically to mid-episode policy changes, frustrated Hinglish-speaking customers, and SLA pressure. This environment trains LLMs to work as a coordinated team — with the speed, consistency, and scalability that human organisations can't match.
+
+> **Our environment is the first to combine all four challenges:** a 3-level agent hierarchy with role-specific rewards, a dynamic LLM-driven customer that degrades into Hinglish under frustration, mid-episode policy drift that forces real-time adaptation, and a progressive 4-stage curriculum that builds each skill incrementally.
 
 ---
 
@@ -400,7 +421,7 @@ The `/chat` endpoint internally orchestrates the full hierarchy loop (L1 → L2 
 | Resource | Link |
 |----------|------|
 | **🚀 Live Demo (HF Space)** | [huggingface.co/spaces/lebiraja/customer-support-env](https://huggingface.co/spaces/lebiraja/customer-support-env) |
-| **📓 Colab Notebook** | [Training & Evaluation Notebook](https://colab.research.google.com/) |
+| **📓 Colab Notebook** | [Training & Evaluation Notebook](https://colab.research.google.com/drive/1OSPzLQD6H9jlxUY8p_jUyx_T_xrj31Ph?usp=sharing) |
 | **📦 Repository** | [github.com/lebiraja/meta_hack](https://github.com/lebiraja/meta_hack) |
 | **📄 OpenEnv Spec** | [`openenv.yaml`](openenv.yaml) |
 | **📖 Curriculum Docs** | [`docs/Curriculum_v2.1_Documentation.md`](docs/Curriculum_v2.1_Documentation.md) |
@@ -409,6 +430,14 @@ The `/chat` endpoint internally orchestrates the full hierarchy loop (L1 → L2 
 ---
 
 ## 🌍 Why This Matters
+
+### The Bigger Picture
+
+Our environment directly addresses a widespread pain point in Indian digital services. The broken bot → human → supervisor → manager chain we described isn't just frustrating — it causes measurable SLA breaches, customer churn, and brand damage at scale.
+
+By training agents to work as a **coordinated intelligent hierarchy** — sharing context, following role-specific policies, adapting to language switching and policy drift — we demonstrate that multi-agent RL can produce dramatically better customer experiences than either rigid bots or naive single-agent LLMs.
+
+This pushes beyond simple chatbots toward truly collaborative agent systems capable of handling complex, real-world enterprise workflows at speed and scale.
 
 ### OpenEnv Theme Coverage
 

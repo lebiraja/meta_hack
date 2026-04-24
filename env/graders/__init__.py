@@ -9,6 +9,7 @@ from env.graders.task_curriculum_basic import grade as grade_curriculum_basic
 from env.graders.task_curriculum_supervisor import grade as grade_curriculum_supervisor
 from env.graders.task_curriculum_full_hierarchy import grade as grade_curriculum_full_hierarchy
 from env.graders.task_curriculum_nightmare import grade as grade_curriculum_nightmare
+from env.graders.task_multi_domain import grade as grade_multi_domain
 
 GRADERS = {
     "easy": grade_easy,
@@ -22,6 +23,7 @@ GRADERS = {
     "curriculum_supervisor": grade_curriculum_supervisor,
     "curriculum_full_hierarchy": grade_curriculum_full_hierarchy,
     "curriculum_nightmare": grade_curriculum_nightmare,
+    "multi_domain": grade_multi_domain,
 }
 
 

@@ -121,3 +121,17 @@ export interface LeaderboardEntry {
   total_score: number;
   steps_taken: number;
 }
+
+export interface ChatResponse {
+  agent_reply: string;
+  action_type: ActionType;
+  active_role: AgentRole;
+  reward: number;
+  step: number;
+  max_steps: number;
+  done: boolean;
+  customer_sentiment: number;
+  unresolved_issues: string[];
+  environment_event: string | null;
+  final_score: number | null;
+}

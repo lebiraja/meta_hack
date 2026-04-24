@@ -10,6 +10,9 @@ services:
       - .env
     environment:
       - ENV_URL=http://localhost:7860
+      - AGENT_MODEL_URL=http://host.docker.internal:8001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
       interval: 30s

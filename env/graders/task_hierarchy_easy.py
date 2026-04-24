@@ -44,10 +44,23 @@ def grade(session_state: dict[str, Any]) -> float:
 
     # 5. Required info gathered
     import re
-    _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", re.IGNORECASE)
+    _PATTERNS = {
+        "account_email":    re.compile(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", re.IGNORECASE),
+        "order_id":         re.compile(r"\b(?:order|ord|#)\s*[-]?\s*[A-Z0-9]{4,}\b", re.IGNORECASE),
+        "account_username": re.compile(r"\b(?:username|user\s*name|account\s*name|login)\b.*?:\s*\S+", re.IGNORECASE),
+        "device_info":      re.compile(r"\b(?:iphone|android|ios|windows|mac|chrome|firefox|safari|app version)\b", re.IGNORECASE),
+    }
     all_text = " ".join(m.get("content", "") for m in history)
     required = ticket.get("required_info_before_close", [])
-    gathered = sum(1 for i in required if (i == "account_email" and _EMAIL_RE.search(all_text)) or i != "account_email")
+    gathered = 0
+    for info_type in required:
+        pat = _PATTERNS.get(info_type)
+        if pat and pat.search(all_text):
+            gathered += 1
+        elif info_type not in _PATTERNS:
+            customer_turns = sum(1 for m in history if m.get("role") == "customer")
+            if customer_turns > 2:
+                gathered += 1
     if required:
         score += weights["info_gathered"] * (gathered / len(required))
     else:

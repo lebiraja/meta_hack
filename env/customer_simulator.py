@@ -256,21 +256,12 @@ class CustomerSimulator:
         use_hinglish: bool = False,
     ) -> str:
         """Generate reply using static templates (fallback)."""
-        # Simulated tool failures (15% chance)
-        if random.random() < 0.15:
-            failure_msgs = [
-                "I'm not seeing any update on my end. Did that go through?",
-                "I got an error message when I tried that — it says 'service unavailable'.",
-                "Something seems wrong, I'm still seeing the same issue.",
-            ]
-            reply = random.choice(failure_msgs)
-        else:
-            persona_replies = _FALLBACK_REPLIES.get(persona, _FALLBACK_REPLIES["polite"])
-            action_key = "request_info" if action_type == "request_info" else "respond"
-            replies = persona_replies.get(action_key, persona_replies["respond"])
-            template = random.choice(replies)
-            follow_up = ticket.get("follow_up_info", "")
-            reply = template.format(follow_up_info=follow_up)
+        persona_replies = _FALLBACK_REPLIES.get(persona, _FALLBACK_REPLIES["polite"])
+        action_key = "request_info" if action_type == "request_info" else "respond"
+        replies = persona_replies.get(action_key, persona_replies["respond"])
+        template = random.choice(replies)
+        follow_up = ticket.get("follow_up_info", "")
+        reply = template.format(follow_up_info=follow_up)
 
         # Add Hinglish flavor if triggered
         if use_hinglish:

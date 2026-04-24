@@ -65,16 +65,21 @@ def aggregate_reward(episode: EpisodeRecord, config: TrainConfig) -> float:
     if not episode.steps:
         return 0.0
 
-    # Discounted sum of per-step rewards
-    step_sum = sum(
+    # Discounted average of per-step rewards (normalized to [0,1] regardless of episode length)
+    # Using average (not sum) so that step_weight actually means what it says: if step_weight=0.30
+    # then step rewards contribute 30% of total signal regardless of episode length.
+    n = len(episode.steps)
+    discounted_sum = sum(
         (config.gamma ** t) * s.reward_value
         for t, s in enumerate(episode.steps)
     )
+    normalizer = sum(config.gamma ** t for t in range(n)) or 1.0
+    step_avg = discounted_sum / normalizer  # weighted average, stays in [0,1]
 
     # Terminal grader score (only present on the last step when done=True)
     final_score = episode.steps[-1].final_score or 0.0
 
-    return config.step_weight * step_sum + config.terminal_weight * final_score
+    return config.step_weight * step_avg + config.terminal_weight * final_score
 
 
 def grpo_advantages(rewards: List[float], eps: float = 1e-8) -> List[float]:

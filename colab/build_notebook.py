@@ -44,12 +44,8 @@ cells.append(code("""import os
 # 🔧 CONFIGURE THESE
 # ══════════════════════════════════════════════════════════════
 
-# Option A: HF Space URL (uncomment and set your actual space URL)
-# ENV_URL = "https://YOUR-USERNAME-YOUR-SPACE.hf.space"
-
-# Option B: If running server locally with ngrok, leave this as placeholder —
-# cell 2b below will overwrite it.
-ENV_URL   = "http://localhost:7860"
+# Environment server URL (ngrok tunnel to local Docker container)
+ENV_URL   = "https://bd03-2401-4900-900f-a3f6-d2d8-9e29-9a0a-10d1.ngrok-free.app"
 
 API_KEY   = "meta_hack_2026"
 MODEL     = "unsloth/Qwen2.5-1.5B-Instruct"  # small model for fast training

@@ -100,19 +100,23 @@ def _agent_messages(history: List[Message]) -> List[str]:
 
 def compute_loop_penalty(history: List[Message]) -> float:
     """
-    Detects repeated agent messages via TF-IDF cosine similarity
-    AND character-level SequenceMatcher ratio.
-    Returns -0.1 if either threshold exceeded.
+    Detect repeated agent messages. Checks the last 4 agent messages and
+    penalises any pair whose SequenceMatcher ratio exceeds 0.80. This catches
+    both adjacent repeats and alternating-paraphrase loops that try to evade
+    a strict adjacency check.
+
+    Returns -0.12 if any pair is over threshold, else 0.0.
     """
-    agent_msgs = _agent_messages(history)
+    agent_msgs = [m for m in _agent_messages(history) if m and m.strip()]
     if len(agent_msgs) < 2:
         return 0.0
-    last_two = agent_msgs[-2:]
-    if not all(m.strip() for m in last_two):
-        return 0.0
 
-    char_sim = SequenceMatcher(None, last_two[0], last_two[1]).ratio()
-    return -0.1 if char_sim > 0.85 else 0.0
+    window = agent_msgs[-4:]
+    for i in range(len(window)):
+        for j in range(i + 1, len(window)):
+            if SequenceMatcher(None, window[i], window[j]).ratio() > 0.80:
+                return -0.12
+    return 0.0
 
 
 def compute_resolution_score(
@@ -241,13 +245,65 @@ def compute_keyword_stuffing_penalty(message: str) -> float:
 # DB Signal Helper (grounded response rewards / hallucination penalties)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Patterns for detecting claimed facts in agent messages
+# Patterns for detecting claimed facts in agent messages. Word-bounded so we
+# can compare against the same pattern extracted from customer text and from DB
+# values, rather than doing raw substring matching (which mis-flags legitimate
+# facts that the customer already mentioned).
 _FACT_PATTERNS = {
     "email": re.compile(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", re.IGNORECASE),
     "order_id": re.compile(r"\b(?:ORD|ORDER|#)[-\s]?[A-Z]{0,3}[-\s]?\d{3,}\b", re.IGNORECASE),
-    "amount": re.compile(r"₹\s*\d+|\brs\.?\s*\d+|\brupees?\s*\d+|\d+\s*(?:rupees?|inr)\b", re.IGNORECASE),
-    "date": re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}\b", re.IGNORECASE),
+    # Amount: ₹NNN, Rs NNN, NNN rupees, NNN INR — require word boundary so
+    # "approx 500 rupees" matches cleanly and later also matches from customer text.
+    "amount": re.compile(
+        r"(?:₹\s*\d{2,}|\brs\.?\s*\d{2,}\b|\b\d{2,}\s*(?:rupees?|inr)\b|\brupees?\s+\d{2,}\b)",
+        re.IGNORECASE,
+    ),
+    "date": re.compile(
+        r"\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}\b",
+        re.IGNORECASE,
+    ),
 }
+
+
+def _normalise_claim(claim: str) -> str:
+    """Normalise a pattern match so semantically-identical claims compare equal.
+
+    Collapses whitespace, lowercases, and strips the currency symbol from
+    amounts so '₹999' == 'rs 999' == '999 rupees' for comparison purposes.
+    """
+    c = re.sub(r"\s+", "", claim.lower())
+    c = c.replace("₹", "").replace("rs.", "").replace("rs", "")
+    c = c.replace("rupees", "").replace("rupee", "").replace("inr", "")
+    return c.strip()
+
+
+# Hard caps on DB signal totals so no combination of bonuses can dominate the
+# weighted reward sum and push raw above 1.0 before clipping.
+DB_TOTAL_MIN = -0.30
+DB_TOTAL_MAX = 0.25
+
+# Minimum response length (chars) required to earn the grounded-response bonus.
+# Prevents the farm where the agent replies with a single DB field and claims +0.10.
+_GROUNDED_MIN_LEN = 30
+
+# Actions that legitimately "react to not_found" — only these earn the bonus.
+_GOOD_NOT_FOUND_ACTIONS = None  # populated lazily to avoid import cycle
+
+
+def _collect_grounded_values(retrieved_data: dict) -> List[str]:
+    """Flatten every string-ish value from users + orders into one lowercase list."""
+    values: List[str] = []
+    users_data = retrieved_data.get("users", {}) or {}
+    orders_data = retrieved_data.get("orders", {}) or {}
+    for record in list(users_data.values()) + list(orders_data.values()):
+        if not isinstance(record, dict):
+            continue
+        for v in record.values():
+            if isinstance(v, list):
+                values.extend(str(i).lower() for i in v if i is not None)
+            elif v is not None:
+                values.append(str(v).lower())
+    return values
 
 
 def compute_db_signals(
@@ -259,10 +315,27 @@ def compute_db_signals(
     """
     Compute DB-grounding reward signals for an action step.
 
-    Returns a dict of signal_name → float (positive = bonus, negative = penalty).
-    Returns all zeros when no DB queries have been made (backward-compatible).
+    Signals (all clamped; absolute values are modest so they never overwhelm
+    the core reward components):
+
+      query_match_bonus       +0.08  — queried the email/order_id the ticket is about
+      wasted_query_penalty    -0.08  — queried an email/order never mentioned by the customer
+      grounded_response_bonus +0.10  — cited verbatim DB data in a substantive (≥30-char) reply
+      not_found_handling_bonus+0.08  — responded to a not_found with REQUEST_INFO / ESCALATE
+      hallucination_penalty   -0.25  — invented a fact (amount, date, email, order-id) that is in
+                                       neither the DB nor the customer's own messages
+
+    Returns all zeros when no DB interaction has happened (backward-compatible).
     """
     from env.models import ActionType
+
+    global _GOOD_NOT_FOUND_ACTIONS
+    if _GOOD_NOT_FOUND_ACTIONS is None:
+        _GOOD_NOT_FOUND_ACTIONS = {
+            ActionType.REQUEST_INFO,
+            ActionType.ESCALATE,
+            ActionType.SUPERVISOR_ESCALATE,
+        }
 
     signals: dict = {
         "query_match_bonus": 0.0,
@@ -273,84 +346,84 @@ def compute_db_signals(
     }
 
     at = ActionType(action.action_type)
-    ticket_email = ticket.get("customer_email", "")
-    ticket_order_ids: List[str] = ticket.get("related_order_ids", [])
-    users_data: dict = retrieved_data.get("users", {})
-    orders_data: dict = retrieved_data.get("orders", {})
+    ticket_email = (ticket.get("customer_email") or "").lower()
+    ticket_order_ids: List[str] = ticket.get("related_order_ids", []) or []
+    users_data: dict = retrieved_data.get("users", {}) or {}
+    orders_data: dict = retrieved_data.get("orders", {}) or {}
 
-    # ── Query match bonus ──────────────────────────────────────────────────────
+    customer_text = " ".join(
+        m.content for m in history if m.role == "customer"
+    )
+    customer_text_lower = customer_text.lower()
+    customer_text_upper = customer_text.upper()
+
+    # ── Query match bonus / wasted-query penalty ──────────────────────────────
     if at == ActionType.QUERY_USER_PROFILE and action.email:
         queried_email = action.email.strip().lower()
-        ticket_email_lower = ticket_email.lower() if ticket_email else ""
-        if ticket_email_lower and queried_email == ticket_email_lower:
+        if ticket_email and queried_email == ticket_email:
             signals["query_match_bonus"] = 0.08
-        elif queried_email and queried_email not in (
-            " ".join(m.content for m in history if m.role == "customer").lower()
-        ):
-            # Email never mentioned by customer — wasted query
+        elif queried_email and queried_email not in customer_text_lower:
             signals["wasted_query_penalty"] = -0.08
 
     if at == ActionType.QUERY_ORDER_DETAILS and action.order_id:
         queried_oid = action.order_id.strip().upper()
         if ticket_order_ids and queried_oid in [o.upper() for o in ticket_order_ids]:
             signals["query_match_bonus"] = 0.08
-        elif queried_oid and queried_oid not in (
-            " ".join(m.content for m in history if m.role == "customer").upper()
-        ):
+        elif queried_oid and queried_oid not in customer_text_upper:
             signals["wasted_query_penalty"] = -0.08
 
     # ── Not-found handling bonus ───────────────────────────────────────────────
-    _GOOD_NOT_FOUND_ACTIONS = {
-        ActionType.REQUEST_INFO, ActionType.ESCALATE, ActionType.SUPERVISOR_ESCALATE,
-    }
+    # Only award when retrieved_data contains at least one "not_found" sentinel
+    # AND the current action is a recovery move (ask for info or escalate).
     any_not_found = (
         "not_found" in users_data.values() or "not_found" in orders_data.values()
     )
     if any_not_found and at in _GOOD_NOT_FOUND_ACTIONS:
         signals["not_found_handling_bonus"] = 0.08
 
-    # ── Grounded response bonus & hallucination penalty ────────────────────────
-    msg_text = (action.message or action.reason or "").lower()
-    if msg_text and at in {
+    # ── Grounded response & hallucination (only on response-like actions) ─────
+    response_actions = {
         ActionType.RESPOND, ActionType.CLOSE, ActionType.REQUEST_INFO,
         ActionType.MANAGER_OVERRIDE, ActionType.MANAGER_RESOLVE,
-    }:
-        # Collect all verbatim field values from retrieved_data
-        grounded_values: List[str] = []
-        for user_record in users_data.values():
-            if isinstance(user_record, dict):
-                grounded_values.extend(str(v).lower() for v in user_record.values())
-        for order_record in orders_data.values():
-            if isinstance(order_record, dict):
-                for v in order_record.values():
-                    if isinstance(v, list):
-                        grounded_values.extend(str(i).lower() for i in v)
-                    else:
-                        grounded_values.append(str(v).lower())
+    }
+    msg_text_raw = action.message or action.reason or ""
+    msg_text = msg_text_raw.lower()
 
-        if grounded_values:
-            # Bonus: message cites a verbatim value from retrieved_data
-            grounded = any(gv in msg_text for gv in grounded_values if len(gv) > 3)
-            if grounded:
+    if msg_text and at in response_actions:
+        grounded_values = _collect_grounded_values(retrieved_data)
+
+        # Grounded-response bonus: the reply must be substantive (≥30 chars)
+        # AND cite at least one verbatim DB value (≥4 chars, to avoid rewarding
+        # trivia like `499` that any reply could include).
+        if grounded_values and len(msg_text_raw.strip()) >= _GROUNDED_MIN_LEN:
+            if any(len(gv) >= 4 and gv in msg_text for gv in grounded_values):
                 signals["grounded_response_bonus"] = 0.10
 
-        # Penalty: message contains a specific fact pattern NOT in retrieved_data
-        # and NOT mentioned by the customer
-        customer_text = " ".join(
-            m.content for m in history if m.role == "customer"
-        ).lower()
-        all_known_text = customer_text + " " + " ".join(grounded_values)
+        # Hallucination: a fact pattern appears in the agent's text that is
+        # present in neither the customer's messages nor the DB values. Compare
+        # via _normalise_claim so "₹999" == "rs 999" == "999 rupees".
+        known_claims: set[str] = set()
+        for text in (customer_text_lower, " ".join(grounded_values)):
+            for pat in _FACT_PATTERNS.values():
+                for m in pat.finditer(text):
+                    known_claims.add(_normalise_claim(m.group(0)))
 
-        for pat_name, pat in _FACT_PATTERNS.items():
-            for match in pat.finditer(msg_text):
-                claimed = match.group(0).lower()
-                if claimed not in all_known_text:
+        for pat in _FACT_PATTERNS.values():
+            for m in pat.finditer(msg_text):
+                if _normalise_claim(m.group(0)) not in known_claims:
                     signals["hallucination_penalty"] = -0.25
                     break
             if signals["hallucination_penalty"] < 0:
                 break
 
     return signals
+
+
+def _clamp_db_total(signals: dict) -> float:
+    """Sum signals and clamp to [DB_TOTAL_MIN, DB_TOTAL_MAX] so the bucket can't
+    overwhelm the weighted-sum reward components."""
+    total = sum(v for v in signals.values() if isinstance(v, (int, float)))
+    return float(np.clip(total, DB_TOTAL_MIN, DB_TOTAL_MAX))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -396,7 +469,7 @@ def compute_step_reward(
     # DB grounding signals (all zero when no queries made)
     _rd = retrieved_data or {"users": {}, "orders": {}}
     db_signals = compute_db_signals(action, ticket, history, _rd)
-    db_total = sum(db_signals.values())
+    db_total = _clamp_db_total(db_signals)
 
     raw = (
         0.40 * resolution_score
@@ -575,7 +648,7 @@ def compute_hierarchy_reward(
     # ── DB grounding signals ───────────────────────────────────────────────────
     _rd = retrieved_data or {"users": {}, "orders": {}}
     db_signals = compute_db_signals(action, ticket, history, _rd)
-    db_total = sum(db_signals.values())
+    db_total = _clamp_db_total(db_signals)
 
     # ── Compute overall raw reward ─────────────────────────────────────────────
     if is_terminal:
@@ -625,20 +698,36 @@ def compute_hierarchy_reward(
     )
     role_rewards["support_agent"] = float(np.clip(l1_raw, 0.0, 1.0))
 
-    # Supervisor role reward
+    # Supervisor role reward — escalation_penalty and unnecessary_manager_penalty
+    # are both ≤0; we clamp their sum first so a single bad call can drag the
+    # supervisor score down by at most 0.5 (the blended term below still leaves
+    # room for a recovery signal).
+    sup_decision_score = float(np.clip(
+        1.0 + escalation_penalty + unnecessary_manager_penalty, 0.0, 1.0
+    ))
     l2_raw = (
         0.35 * oversight_score
-        + 0.30 * (1.0 + escalation_penalty + unnecessary_manager_penalty)
+        + 0.30 * sup_decision_score
         + 0.20 * policy_adherence_score
         + 0.15 * (1.0 if steps_used <= ideal_steps else 0.5)
     )
     role_rewards["supervisor"] = float(np.clip(l2_raw, 0.0, 1.0))
 
-    # Manager role reward
+    # Manager role reward. Previously a flat "terminal or zero" term punished
+    # legitimate MANAGER_SEND_BACK actions. We now use decision quality (from
+    # the LLM judge) as the primary signal and give a smaller bonus for actually
+    # resolving vs deferring, without crushing the score for a correct deferral.
+    manager_act_type = ActionType(action.action_type) if hasattr(action, "action_type") else None
+    if manager_act_type in {ActionType.MANAGER_RESOLVE, ActionType.MANAGER_OVERRIDE}:
+        resolve_bonus = 1.0
+    elif manager_act_type == ActionType.MANAGER_SEND_BACK:
+        resolve_bonus = 0.7  # legitimate deferral, still valuable
+    else:
+        resolve_bonus = 0.5  # non-manager action, neutral default
     l3_raw = (
-        0.40 * decision_quality_score
+        0.45 * decision_quality_score
         + 0.30 * (resolution_llm_score if is_terminal else 0.5)
-        + 0.30 * (1.0 if is_terminal else 0.0)
+        + 0.25 * resolve_bonus
     )
     role_rewards["manager"] = float(np.clip(l3_raw, 0.0, 1.0))
 

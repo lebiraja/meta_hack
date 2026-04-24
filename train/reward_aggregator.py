@@ -90,12 +90,27 @@ def grpo_advantages(rewards: List[float], eps: float = 1e-8) -> List[float]:
 
     A_i = (R_i − μ) / (σ + ε)
 
+    Robustness: when rewards contain obvious invalid-episode sentinels (values
+    well below the usual range, e.g. -0.5), computing μ/σ over the *full* group
+    pulls valid episodes' advantages artificially larger. We instead compute μ/σ
+    over the valid subset when we detect clear outliers, but still return an
+    advantage for every input index (invalid episodes get their literal
+    deviation, which is correctly negative).
+
     If all rewards in the group are identical (σ = 0), all advantages are 0.
     """
     if not rewards:
         return []
     n = len(rewards)
-    mu = sum(rewards) / n
-    var = sum((r - mu) ** 2 for r in rewards) / n
+    # Detect invalid sentinels: rewards that are significantly below the
+    # minimum of the "normal" range. Our invalid_penalty defaults to -0.5;
+    # anything at or below that is treated as an outlier for μ/σ estimation.
+    valid = [r for r in rewards if r > -0.5 + 1e-6]
+    if 0 < len(valid) < n:
+        mu = sum(valid) / len(valid)
+        var = sum((r - mu) ** 2 for r in valid) / len(valid)
+    else:
+        mu = sum(rewards) / n
+        var = sum((r - mu) ** 2 for r in rewards) / n
     sigma = var ** 0.5
     return [(r - mu) / (sigma + eps) for r in rewards]

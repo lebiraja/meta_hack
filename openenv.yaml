@@ -1,33 +1,44 @@
 name: customer-support-env
-version: "2.1.0"
+version: "2.2.0"
 description: >
   Hierarchical multi-agent RL environment for AI customer support training.
   Features a 3-level agent hierarchy (Support Agent → Supervisor → Manager),
   LLM-driven customer simulator with Hinglish support, dynamic policy drift,
-  hybrid dense rewards (rule-based + LLM-as-Judge), and a progressive
-  4-stage curriculum that systematically increases complexity for RL training.
+  hybrid dense rewards (rule-based + LLM-as-Judge), an in-memory DB across
+  three domains (food delivery, e-commerce, ticket booking) with grounded
+  response rewards + hallucination penalties, and a progressive 5-stage
+  curriculum that systematically increases complexity for RL training.
   Backward compatible with Round 1 single-agent tasks.
 author: Team X-Force
 curriculum:
   description: >
-    Progressive 4-stage curriculum designed for RL training. Easy tasks provide
+    Progressive 5-stage curriculum designed for RL training. Easy tasks provide
     dense initial rewards so models learn basic behavior. Each subsequent level
     introduces new agents, mechanisms, and challenges. Agents trained on lower
     levels transfer skills upward — empathy from L1-only → oversight from L2 →
-    coordination from full hierarchy → adversarial resilience from nightmare.
+    coordination from full hierarchy → adversarial resilience from nightmare →
+    DB-grounded reasoning from multi_domain.
   stages:
     - stage: 1
       task: curriculum_basic
       objective: "Learn empathy, info-gathering, and resolution fundamentals"
+      advance_threshold: 0.65
     - stage: 2
       task: curriculum_supervisor
       objective: "Learn to accept feedback and improve actions iteratively"
+      advance_threshold: 0.60
     - stage: 3
       task: curriculum_full_hierarchy
       objective: "Coordinate across all 3 levels under policy drift"
+      advance_threshold: 0.55
     - stage: 4
       task: curriculum_nightmare
       objective: "Handle extreme adversarial conditions with Hinglish, multi-drift, and high frustration"
+      advance_threshold: 0.50
+    - stage: 5
+      task: multi_domain
+      objective: "Query a DB for real user/order data, cite grounded facts verbatim, avoid hallucination"
+      advance_threshold: null   # final stage — no further advancement
 tasks:
   # ── Round 1: Single-agent tasks (backward compatible) ──────────────────────
   - name: easy
@@ -187,18 +198,34 @@ observation_space:
     escalation_reason: "string | null"
 reward_range: [0.0, 1.0]
 reward_signals:
-  # Single-agent mode
-  resolution: 0.40
-  tone: 0.20
-  efficiency: 0.20
-  accuracy: 0.20
-  # Hierarchy mode (additional)
-  empathy: "LLM-as-Judge"
-  policy_adherence: "LLM-as-Judge"
-  oversight_quality: "LLM-as-Judge"
-  decision_quality: "LLM-as-Judge"
-  hierarchy_effectiveness: "Rule-based"
-  sla_compliance: "Rule-based"
+  # Single-agent mode (Round 1)
+  resolution: 0.40            # keyword-grounded resolution score on terminal
+  tone: 0.20                  # VADER sentiment on agent messages
+  efficiency: 0.20            # steps_used vs max_steps
+  accuracy: 0.20              # required_info_before_close found in conversation
+  # Hierarchy mode (Round 2, overall weights sum to 1.0 at terminal step)
+  empathy: "LLM-as-Judge"              # 0.15 weight
+  policy_adherence: "LLM-as-Judge"     # 0.15 weight
+  oversight_quality: "LLM-as-Judge"    # supervisor role_reward input
+  decision_quality: "LLM-as-Judge"     # manager role_reward input
+  hierarchy_effectiveness: "Rule-based"# 0.10 weight
+  sla_compliance: "Rule-based"         # 0.15 weight
+  # DB grounding signals (Round 2, multi_domain task)
+  query_match_bonus: "+0.08"           # queried the ticket's email/order
+  wasted_query_penalty: "-0.08"        # queried something the customer never mentioned
+  grounded_response_bonus: "+0.10"     # cited verbatim DB data in a substantive reply (≥30 chars)
+  not_found_handling_bonus: "+0.08"    # responded to a not_found with REQUEST_INFO / ESCALATE
+  hallucination_penalty: "-0.25"       # invented a fact (amount/date/email/order) not in DB or customer text
+  # Anti-gaming penalties (apply across all tasks)
+  loop_penalty: "-0.12"                # any pair of the last 4 agent messages >80% similar
+  keyword_stuffing_penalty: "-0.30"    # reward-keyword density >20% without substance
+  contradiction_penalty: "-0.15"       # claimed resolution then asked for info
+  escalation_penalty: "-0.30"          # escalated a low/medium priority ticket
+  ignored_feedback_penalty: "-0.15"    # L1 did not incorporate supervisor feedback
+  unnecessary_manager_penalty: "-0.20" # L2 escalated to L3 on a low/medium ticket
+reward_clamping:
+  db_total: "[-0.30, +0.25]"           # sum of all DB signals is clamped before joining raw
+  raw_to_value: "[0.0, 1.0]"           # final Reward.value is always clamped to [0,1]
 tags:
   - customer-support
   - multi-agent

@@ -123,6 +123,16 @@ export const TASK_CONFIG: Record<
     hinglishEnabled: true,
     description: "Stage 4 — adversarial + Hinglish",
   },
+  multi_domain: {
+    label: "Multi-Domain (DB)",
+    maxSteps: 8,
+    levels: [1],
+    driftProbability: 0,
+    difficulty: "hard",
+    hierarchical: true,
+    hinglishEnabled: false,
+    description: "Query user/order DB, cite grounded data, avoid hallucination",
+  },
 };
 
 export const DIFFICULTY_COLORS = {

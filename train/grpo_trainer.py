@@ -85,13 +85,25 @@ def grpo_loss(
             # ── Old log-probs (at generation time, no gradient) ───────────────
             if step.log_probs is not None and isinstance(step.log_probs, torch.Tensor):
                 old_lp = step.log_probs.to(device).detach()
-                # Align lengths (generation-time vs recomputed may differ slightly)
+                # Align lengths (generation-time vs recomputed may differ slightly).
+                # Warn once per training run if divergence exceeds 10% — this usually
+                # signals a tokenizer/prompt mismatch between rollout and loss.
+                if abs(cur_lp.shape[0] - old_lp.shape[0]) > max(4, int(0.10 * max(cur_lp.shape[0], 1))):
+                    if not getattr(grpo_loss, "_logprob_warned", False):
+                        print(
+                            f"[GRPO] warn: large log-prob length mismatch "
+                            f"cur={cur_lp.shape[0]} old={old_lp.shape[0]}; "
+                            f"check that tokenizer/prompt match between rollout and loss recompute"
+                        )
+                        grpo_loss._logprob_warned = True  # type: ignore[attr-defined]
                 min_len = min(cur_lp.shape[0], old_lp.shape[0])
                 cur_lp_aligned = cur_lp[:min_len]
                 old_lp_aligned = old_lp[:min_len]
             else:
+                # Generation failed or fallback action was used. Ratio=1 means
+                # this step contributes no policy-gradient signal (KL term only).
                 cur_lp_aligned = cur_lp
-                old_lp_aligned = cur_lp.detach()   # ratio = 1, no update
+                old_lp_aligned = cur_lp.detach()
 
             # ── Reference model log-probs (no gradient) ───────────────────────
             with torch.no_grad():

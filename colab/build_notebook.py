@@ -50,13 +50,13 @@ ENV_URL   = "https://bd03-2401-4900-900f-a3f6-d2d8-9e29-9a0a-10d1.ngrok-free.app
 API_KEY   = "meta_hack_2026"
 MODEL     = "unsloth/Qwen2.5-1.5B-Instruct"  # small model for fast training
 
-# Training hyperparameters
-TOTAL_STEPS    = 50       # gradient steps (increase for better results)
-GROUP_SIZE     = 4        # rollouts per GRPO group
+# Training hyperparameters (tuned for Colab T4 speed)
+TOTAL_STEPS    = 30       # gradient steps (increase for better results)
+GROUP_SIZE     = 2        # rollouts per GRPO group
 TASK           = "curriculum_basic"  # easiest curriculum stage
 LORA_R         = 16
 LEARNING_RATE  = 5e-5
-MAX_NEW_TOKENS = 256
+MAX_NEW_TOKENS = 128      # JSON actions are ~50 tokens, 128 is plenty
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 print(f"✅ Config ready — ENV: {ENV_URL}, MODEL: {MODEL}, STEPS: {TOTAL_STEPS}")"""))
@@ -88,10 +88,11 @@ cells.append(md("## 3️⃣ Load Model with Unsloth + LoRA"))
 cells.append(code("""from unsloth import FastLanguageModel
 import torch
 
+MAX_SEQ_LEN = 2048  # shorter = faster on T4
 print(f"Loading {MODEL}...")
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=MODEL,
-    max_seq_length=4096,
+    max_seq_length=MAX_SEQ_LEN,
     dtype=None,
     load_in_4bit=True,
 )
@@ -113,7 +114,7 @@ if tokenizer.pad_token is None:
 
 # Frozen reference model for KL penalty
 ref_model, _ = FastLanguageModel.from_pretrained(
-    model_name=MODEL, max_seq_length=4096, dtype=None, load_in_4bit=True,
+    model_name=MODEL, max_seq_length=MAX_SEQ_LEN, dtype=None, load_in_4bit=True,
 )
 for p in ref_model.parameters():
     p.requires_grad_(False)
@@ -211,11 +212,16 @@ cells.append(code("""def generate_action(prompt, sample=True):
     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
     prompt_len = inputs["input_ids"].shape[1]
     with torch.no_grad():
-        ids = model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS,
-                             temperature=0.8 if sample else 1.0,
-                             top_p=0.95 if sample else 1.0,
-                             do_sample=sample,
-                             pad_token_id=tokenizer.pad_token_id)
+        ids = model.generate(
+            **inputs,
+            max_new_tokens=MAX_NEW_TOKENS,
+            max_length=None,  # suppress warning
+            temperature=0.7 if sample else 1.0,
+            top_p=0.9 if sample else 1.0,
+            do_sample=sample,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
     text = tokenizer.decode(ids[0, prompt_len:], skip_special_tokens=True)
     text = re.sub(r"<think>[\\s\\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
     return text
@@ -264,7 +270,7 @@ print("✅ Rollout functions ready")"""))
 cells.append(md("""## 7️⃣ Baseline Evaluation (Before Training)
 
 Run a few episodes with the untrained model to establish a baseline."""))
-cells.append(code("""N_EVAL = 5
+cells.append(code("""N_EVAL = 3
 FastLanguageModel.for_inference(model)
 
 print(f"Running {N_EVAL} baseline episodes on '{TASK}'...")

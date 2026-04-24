@@ -33,7 +33,7 @@ short_description: 3-level hierarchical multi-agent RL env with dynamic customer
 [![FastAPI](https://img.shields.io/badge/FastAPI-2.1.0-009688?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-[**🚀 Live Demo**](https://huggingface.co/spaces/lebiraja/customer-support-env) · [**📓 Colab Notebook**](https://colab.research.google.com/) · [**📄 OpenEnv YAML**](openenv.yaml)
+[**🚀 Live Demo**](https://huggingface.co/spaces/lebiraja/customer-support-env) · [**📓 Colab Notebook**](https://colab.research.google.com/drive/1OSPzLQD6H9jlxUY8p_jUyx_T_xrj31Ph?usp=sharing) · [**📄 OpenEnv YAML**](openenv.yaml)
 
 </div>
 
@@ -400,7 +400,7 @@ The `/chat` endpoint internally orchestrates the full hierarchy loop (L1 → L2 
 | Resource | Link |
 |----------|------|
 | **🚀 Live Demo (HF Space)** | [huggingface.co/spaces/lebiraja/customer-support-env](https://huggingface.co/spaces/lebiraja/customer-support-env) |
-| **📓 Colab Notebook** | [Training & Evaluation Notebook](https://colab.research.google.com/) |
+| **📓 Colab Notebook** | [Training & Evaluation Notebook](https://colab.research.google.com/drive/1OSPzLQD6H9jlxUY8p_jUyx_T_xrj31Ph?usp=sharing) |
 | **📦 Repository** | [github.com/lebiraja/meta_hack](https://github.com/lebiraja/meta_hack) |
 | **📄 OpenEnv Spec** | [`openenv.yaml`](openenv.yaml) |
 | **📖 Curriculum Docs** | [`docs/Curriculum_v2.1_Documentation.md`](docs/Curriculum_v2.1_Documentation.md) |

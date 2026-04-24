@@ -174,6 +174,28 @@ async function callNIM(
   return content;
 }
 
+// ── Local inference server ─────────────────────────────────────────────────
+
+async function callLocalServer(
+  observation: Observation,
+  virtualMessages?: Message[]
+): Promise<Action | null> {
+  const localUrl = process.env.LOCAL_INFERENCE_URL ?? "http://host.docker.internal:8001";
+  try {
+    const res = await fetch(`${localUrl}/agent-action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ observation, virtualMessages }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { action?: Action };
+    return data.action ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Route Handler ──────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -188,7 +210,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing observation" }, { status: 400 });
     }
 
-    // Collect API keys with failover
+    // Try local model first (serve_inference.py on port 8001)
+    const localAction = await callLocalServer(observation, virtualMessages);
+    if (localAction) {
+      return NextResponse.json({ action: localAction, backend: "local" });
+    }
+
+    // Fallback: NIM API
     const keys = [
       process.env.NVIDIA_API_KEY_1,
       process.env.NVIDIA_API_KEY_2,
@@ -197,13 +225,12 @@ export async function POST(req: NextRequest) {
 
     if (keys.length === 0) {
       return NextResponse.json(
-        { error: "No NVIDIA API keys configured (set NVIDIA_API_KEY_1 in .env.local)" },
+        { error: "Local inference server not running and no NIM API keys configured" },
         { status: 503 }
       );
     }
 
-    const model =
-      process.env.NVIDIA_MODEL ?? "nvidia/nemotron-super-49b-v1";
+    const model = process.env.NVIDIA_MODEL ?? "meta/llama-3.3-70b-instruct";
 
     const systemPrompt = buildSystemPrompt(observation);
     const userPrompt = buildUserPrompt(observation, virtualMessages);

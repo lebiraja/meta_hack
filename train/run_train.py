@@ -24,6 +24,13 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
+# Load .env before TrainConfig so TRAIN_MODEL env var is available at dataclass init
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed — rely on manually exported env vars
+
 import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR

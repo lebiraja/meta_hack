@@ -1,44 +1,141 @@
 """
-inference.py — CustomerSupportEnv baseline inference script.
+inference.py — CustomerSupportEnv inference script.
 
-Supports both single-agent (Round 1) and hierarchical multi-agent (Round 2).
-Uses NVIDIA NIM API with streaming + reasoning via OpenAI-compatible client.
-Emits mandatory [START]/[STEP]/[END] stdout format.
+Backend selection (INFERENCE_BACKEND env var):
+  local  (default) — runs local HuggingFace model via Unsloth 4-bit
+  nim              — calls NVIDIA NIM API (for comparison / fallback)
+
+Model for local backend:
+  INFERENCE_MODEL env var → TRAIN_MODEL env var → unsloth/Qwen2.5-1.5B-Instruct
+  After training: set INFERENCE_MODEL=merged_model/
 """
 
 import json
 import os
+import re
 import sys
 
 import httpx
 from dotenv import load_dotenv
-from openai import OpenAI
 
 load_dotenv()
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://integrate.api.nvidia.com/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "nvidia/nemotron-super-49b-v1")
-ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
-
-_API_KEYS: list[str] = [
-    k for k in [
-        os.getenv("NVIDIA_API_KEY_1"), os.getenv("NVIDIA_API_KEY_2"),
-        os.getenv("NVIDIA_API_KEY_3"), os.getenv("HF_TOKEN"), os.getenv("API_KEY"),
-    ] if k and k.strip()
-]
-
-if not _API_KEYS:
-    print("[ERROR] No API keys found. Set NVIDIA_API_KEY_1/2/3 in .env", file=sys.stderr)
-    sys.exit(1)
-
-_active_key_index = 0
-
-BENCHMARK = "customer-support-env"
-TASKS = ["easy", "medium", "hard"]
+INFERENCE_BACKEND = os.getenv("INFERENCE_BACKEND", "local")   # "local" | "nim"
+INFERENCE_MODEL   = (
+    os.getenv("INFERENCE_MODEL")
+    or os.getenv("TRAIN_MODEL")
+    or "unsloth/Qwen2.5-1.5B-Instruct"
+)
+ENV_URL    = os.getenv("ENV_URL", "http://localhost:7860")
+BENCHMARK  = "customer-support-env"
+TASKS           = ["easy", "medium", "hard"]
 HIERARCHY_TASKS = ["hierarchy_easy", "hierarchy_medium", "hierarchy_hard"]
 MAX_STEPS = 15
 
-# ── System Prompts ─────────────────────────────────────────────────────────────
+# ── Local model (loaded once at startup) ──────────────────────────────────────
+
+_model     = None
+_tokenizer = None
+
+
+def _load_local_model():
+    global _model, _tokenizer
+    if _model is not None:
+        return _model, _tokenizer
+
+    print(f"[MODEL] Loading local model: {INFERENCE_MODEL}", file=sys.stderr)
+    try:
+        from unsloth import FastLanguageModel
+        _model, _tokenizer = FastLanguageModel.from_pretrained(
+            model_name=INFERENCE_MODEL,
+            max_seq_length=4096,
+            dtype=None,
+            load_in_4bit=True,
+        )
+        FastLanguageModel.for_inference(_model)
+    except Exception as e:
+        print(f"[ERROR] Failed to load local model: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if _tokenizer.pad_token is None:
+        _tokenizer.pad_token = _tokenizer.eos_token
+
+    print(f"[MODEL] Ready — {INFERENCE_MODEL}", file=sys.stderr)
+    return _model, _tokenizer
+
+
+def _call_local(messages: list) -> str:
+    import torch
+    model, tokenizer = _load_local_model()
+
+    try:
+        prompt = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
+        )
+    except TypeError:
+        prompt = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True,
+        )
+
+    inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+    with torch.no_grad():
+        output_ids = model.generate(
+            **inputs,
+            max_new_tokens=256,
+            temperature=0.6,
+            top_p=0.95,
+            do_sample=True,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+
+    completion = tokenizer.decode(
+        output_ids[0, inputs["input_ids"].shape[1]:],
+        skip_special_tokens=True,
+    )
+    return re.sub(r"<think>[\s\S]*?</think>", "", completion, flags=re.IGNORECASE).strip()
+
+
+# ── NIM API backend ───────────────────────────────────────────────────────────
+
+_NIM_MODEL = os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct")
+_API_BASE  = os.getenv("API_BASE_URL", "https://integrate.api.nvidia.com/v1")
+_API_KEYS  = [k for k in [
+    os.getenv("NVIDIA_API_KEY_1"),
+    os.getenv("NVIDIA_API_KEY_2"),
+    os.getenv("NVIDIA_API_KEY_3"),
+] if k and k.strip()]
+_active_key_index = 0
+
+
+def _call_nim(messages: list) -> str:
+    global _active_key_index
+    if not _API_KEYS:
+        raise RuntimeError("No NIM API keys set. Add NVIDIA_API_KEY_1 to .env")
+    from openai import OpenAI
+    last_exc = None
+    for attempt in range(len(_API_KEYS)):
+        idx = (_active_key_index + attempt) % len(_API_KEYS)
+        try:
+            resp = OpenAI(api_key=_API_KEYS[idx], base_url=_API_BASE).chat.completions.create(
+                model=_NIM_MODEL, messages=messages,
+                temperature=0.6, top_p=0.95, max_tokens=512,
+            )
+            _active_key_index = idx
+            return resp.choices[0].message.content.strip()
+        except Exception as exc:
+            last_exc = exc
+            print(f"[WARN] NIM key {idx+1} failed: {exc}", file=sys.stderr)
+    raise RuntimeError(f"All NIM keys failed: {last_exc}") from last_exc
+
+
+def call_llm(messages: list) -> str:
+    if INFERENCE_BACKEND == "nim":
+        return _call_nim(messages)
+    return _call_local(messages)
+
+
+# ── System prompts ────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """CRITICAL RULE — READ FIRST:
 If priority is "critical":
@@ -54,19 +151,19 @@ SCORING (know this to perform well):
 - RESOLUTION (40%): Use clear resolution language matching the ticket type (refund, fix, escalate). Be descriptive! Output over 60 characters to avoid terse penalties (-20% score).
 
 ACTION TYPES — output exactly one per step:
-- "respond"      → send a message to the customer         → requires: "message"
-- "request_info" → ask for specific missing information   → requires: "message"
-- "close"        → close the ticket as resolved           → requires: "message"
-- "escalate"     → hand off to a specialist               → requires: "reason" (NOT message)
+- "respond"      -> send a message to the customer         -> requires: "message"
+- "request_info" -> ask for specific missing information   -> requires: "message"
+- "close"        -> close the ticket as resolved           -> requires: "message"
+- "escalate"     -> hand off to a specialist               -> requires: "reason" (NOT message)
 
 OUTPUT FORMAT — return ONLY this JSON, no code fences, no preamble:
-{"action_type": "...", "message": "..."}   ← for respond / request_info / close
-{"action_type": "escalate", "reason": "..."} ← for escalate
+{"action_type": "...", "message": "..."}   <- for respond / request_info / close
+{"action_type": "escalate", "reason": "..."} <- for escalate
 
 DECISION RULES:
-1. BILLING tickets (low/medium priority): Acknowledge → gather info → resolve → close.
-2. TECHNICAL / ACCOUNT tickets: Empathize → gather info → provide fix → close.
-3. CRITICAL priority: Acknowledge urgency → escalate immediately.
+1. BILLING tickets (low/medium priority): Acknowledge -> gather info -> resolve -> close.
+2. TECHNICAL / ACCOUNT tickets: Empathize -> gather info -> provide fix -> close.
+3. CRITICAL priority: Acknowledge urgency -> escalate immediately.
 
 HARD RULES:
 - NEVER close if "Unresolved issues" is non-empty.
@@ -84,10 +181,10 @@ ABOVE THEM: A Manager handles escalated complex cases.
 {policy_section}
 
 ACTION TYPES — output exactly one per step:
-- "respond"      → send a message to the customer  → requires: "message"
-- "request_info" → ask for missing information      → requires: "message"
-- "close"        → close the ticket as resolved     → requires: "message"
-- "escalate"     → hand off to specialist           → requires: "reason"
+- "respond"      -> send a message to the customer  -> requires: "message"
+- "request_info" -> ask for missing information      -> requires: "message"
+- "close"        -> close the ticket as resolved     -> requires: "message"
+- "escalate"     -> hand off to specialist           -> requires: "reason"
 
 SCORING: Empathy(30%) + Accuracy(25%) + Resolution(25%) + Efficiency(20%)
 Be warm, gather info from "Unresolved issues", use specific resolution language.
@@ -109,16 +206,10 @@ Content: {pending_action_content}
 CURRENT POLICY: {policy}
 
 ACTION TYPES — output exactly one:
-- "supervisor_approve"   → The L1 action is good. Send to customer.          → requires: "message" (brief note)
-- "supervisor_reject"    → The L1 action is bad. Send back.                  → requires: "feedback_to_agent" (specific guidance)
-- "supervisor_feedback"  → The L1 action needs adjustment. Give guidance.    → requires: "feedback_to_agent" (detailed feedback)
-- "supervisor_escalate"  → Too complex for L1/L2. Escalate to Manager.       → requires: "reason"
-
-REVIEW CRITERIA:
-1. Does the agent's response match the ticket priority/category?
-2. Is the tone empathetic and professional?
-3. Does it follow current policy (especially any SYSTEM ALERTs)?
-4. Is it resolving the right issue?
+- "supervisor_approve"   -> The L1 action is good. Send to customer.       -> requires: "message"
+- "supervisor_reject"    -> The L1 action is bad. Send back.               -> requires: "feedback_to_agent"
+- "supervisor_feedback"  -> The L1 action needs adjustment.                -> requires: "feedback_to_agent"
+- "supervisor_escalate"  -> Too complex for L1/L2. Escalate to Manager.    -> requires: "reason"
 
 OUTPUT FORMAT — return ONLY this JSON:
 {{"action_type": "supervisor_approve", "message": "Approved: good empathy and resolution."}}
@@ -128,240 +219,189 @@ OUTPUT FORMAT — return ONLY this JSON:
 MANAGER_PROMPT = """You are a MANAGER (Level 3) in a hierarchical customer support system.
 
 YOUR ROLE: Handle escalated cases, resolve conflicts, make final decisions.
-BELOW YOU: Supervisor and Support Agent.
 ESCALATION REASON: {escalation_reason}
-
 CURRENT POLICY: {policy}
 
 ACTION TYPES — output exactly one:
-- "manager_override"  → Take over and respond directly to customer. → requires: "message"
-- "manager_resolve"   → Resolve the issue with authority.           → requires: "message"
-- "manager_send_back" → Send back to L1 with a directive.          → requires: "feedback_to_agent"
-
-GUIDELINES:
-- For critical/SLA issues: Use manager_resolve with authoritative, specific resolution.
-- For lower priority: Consider manager_send_back with clear instructions.
-- Reference specific ticket details. Be decisive.
+- "manager_override"  -> Take over and respond directly. -> requires: "message"
+- "manager_resolve"   -> Resolve with authority.         -> requires: "message"
+- "manager_send_back" -> Send back to L1 with directive. -> requires: "feedback_to_agent"
 
 OUTPUT FORMAT — return ONLY this JSON:
-{{"action_type": "manager_resolve", "message": "I'm escalating this to our engineering team..."}}
+{{"action_type": "manager_resolve", "message": "I am escalating this to our engineering team immediately."}}
 {{"action_type": "manager_send_back", "feedback_to_agent": "Offer refund, then close."}}"""
 
 
-def _make_client(key: str) -> OpenAI:
-    return OpenAI(api_key=key, base_url=API_BASE_URL)
+# ── Prompt builders ───────────────────────────────────────────────────────────
 
-
-def call_llm(messages: list[dict]) -> tuple[str, str]:
-    global _active_key_index
-    last_exc = None
-    for attempt in range(len(_API_KEYS)):
-        key_idx = (_active_key_index + attempt) % len(_API_KEYS)
-        client = _make_client(_API_KEYS[key_idx])
-        full_content, reasoning_content = "", ""
-        try:
-            completion = client.chat.completions.create(
-                model=MODEL_NAME, messages=messages,
-                temperature=0.6, top_p=0.95, max_tokens=1024, stream=True,
-                extra_body={"chat_template_kwargs": {"enable_thinking": True}, "reasoning_budget": 4096},
-            )
-            for chunk in completion:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                reasoning = getattr(delta, "reasoning_content", None)
-                if reasoning:
-                    reasoning_content += reasoning
-                if delta.content:
-                    full_content += delta.content
-            if key_idx != _active_key_index:
-                print(f"[INFO] Switched to API key {key_idx + 1}", file=sys.stderr)
-                _active_key_index = key_idx
-            return full_content.strip(), reasoning_content
-        except Exception as exc:
-            last_exc = exc
-            print(f"[WARN] Key {key_idx + 1} failed: {exc}", file=sys.stderr)
-    raise RuntimeError(f"All keys exhausted. Last: {last_exc}") from last_exc
-
-
-def _safe_action_log(action: dict) -> str:
-    safe = {"action_type": action.get("action_type", "unknown")}
-    msg = action.get("message") or action.get("reason") or action.get("feedback_to_agent") or ""
-    safe["msg_preview"] = msg.replace("\n", " ")[:120]
-    return json.dumps(safe)
-
-
-def build_prompt(obs: dict) -> str:
-    history_text = "\n".join(
-        f"{m['role'].upper()}: {m['content']}" for m in obs.get("conversation_history", [])
-    )
+def _user_context(obs: dict) -> str:
+    history    = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in obs.get("conversation_history", []))
     unresolved = ", ".join(obs.get("unresolved_issues", [])) or "none"
-    return (
-        f"Ticket: {obs['subject']}\n"
-        f"Category: {obs['category']} | Priority: {obs['priority']} | "
-        f"Step: {obs['step']}/{obs['max_steps']}\n"
-        f"Customer sentiment: {obs['customer_sentiment']:.2f}\n"
-        f"Unresolved issues: {unresolved}\n\n"
-        f"Conversation:\n{history_text}\n\n"
-        f"What is your next action? Output JSON only."
-    )
-
-
-def build_hierarchy_prompt(obs: dict, role: str) -> tuple[str, str]:
-    """Build role-specific system prompt and user prompt for hierarchy mode."""
-    history_text = "\n".join(
-        f"{m['role'].upper()}: {m['content']}" for m in obs.get("conversation_history", [])
-    )
-    unresolved = ", ".join(obs.get("unresolved_issues", [])) or "none"
-    policy = obs.get("policy_context", "Standard operating procedure.")
-    env_event = obs.get("environment_event")
-    hierarchy = obs.get("hierarchy_state") or {}
-
-    base_context = (
+    ctx = (
         f"Ticket: {obs['subject']}\n"
         f"Category: {obs['category']} | Priority: {obs['priority']} | "
         f"Step: {obs['step']}/{obs['max_steps']}\n"
         f"Sentiment: {obs['customer_sentiment']:.2f}\n"
         f"Unresolved: {unresolved}\n"
     )
-    if env_event:
-        base_context += f"\n⚠️ ENVIRONMENT EVENT: {env_event}\n"
+    if obs.get("environment_event"):
+        ctx += f"\nENVIRONMENT EVENT: {obs['environment_event']}\n"
+    ctx += f"\nConversation:\n{history}\n\nOutput JSON only."
+    return ctx
 
-    base_context += f"\nConversation:\n{history_text}\n\nOutput JSON only."
+
+def build_messages(obs: dict) -> list:
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": _user_context(obs)},
+    ]
+
+
+def build_hierarchy_messages(obs: dict, role: str) -> list:
+    policy    = obs.get("policy_context", "Standard operating procedure.")
+    hierarchy = obs.get("hierarchy_state") or {}
 
     if role == "support_agent":
-        sup_fb = obs.get("supervisor_feedback")
+        sup_fb  = obs.get("supervisor_feedback")
         mgr_dir = obs.get("manager_directive")
-        sys_prompt = SUPPORT_AGENT_PROMPT.format(
+        system  = SUPPORT_AGENT_PROMPT.format(
             supervisor_feedback_section=(
-                f"\n⚠️ SUPERVISOR FEEDBACK: {sup_fb}\nYou MUST address this feedback." if sup_fb else ""
+                f"\nSUPERVISOR FEEDBACK: {sup_fb}\nYou MUST address this feedback." if sup_fb else ""
             ),
             manager_directive_section=(
-                f"\n🔴 MANAGER DIRECTIVE: {mgr_dir}\nFollow this directive exactly." if mgr_dir else ""
+                f"\nMANAGER DIRECTIVE: {mgr_dir}\nFollow this directive exactly." if mgr_dir else ""
             ),
             policy_section=f"\nACTIVE POLICY:\n{policy}",
         )
     elif role == "supervisor":
-        pending = hierarchy.get("pending_l1_action", {})
-        sys_prompt = SUPERVISOR_PROMPT.format(
+        pending = hierarchy.get("pending_l1_action") or {}
+        system  = SUPERVISOR_PROMPT.format(
             pending_action_type=pending.get("action_type", "unknown"),
             pending_action_content=pending.get("message") or pending.get("reason") or "N/A",
             policy=policy,
         )
     elif role == "manager":
-        sys_prompt = MANAGER_PROMPT.format(
+        system = MANAGER_PROMPT.format(
             escalation_reason=hierarchy.get("escalation_reason", "Not specified"),
             policy=policy,
         )
     else:
-        sys_prompt = SYSTEM_PROMPT
+        system = SYSTEM_PROMPT
 
-    return sys_prompt, base_context
-
-
-def parse_action(action_str: str) -> dict:
-    """Parse LLM output into action dict, handling markdown fences."""
-    if action_str.startswith("```"):
-        lines = action_str.split("\n")
-        action_str = "\n".join(l for l in lines if not l.startswith("```")).strip()
-    return json.loads(action_str)
+    return [
+        {"role": "system", "content": system},
+        {"role": "user",   "content": _user_context(obs)},
+    ]
 
 
-# ── Single-agent task runner ───────────────────────────────────────────────────
+# ── Action parsing ────────────────────────────────────────────────────────────
+
+def parse_action(raw: str) -> dict:
+    raw = re.sub(r"```[a-z]*\n?", "", raw).strip()
+    m   = re.search(r"\{[\s\S]*?\}", raw)
+    if m:
+        return json.loads(m.group())
+    return json.loads(raw)
+
+
+def _safe_log(action: dict) -> str:
+    msg = action.get("message") or action.get("reason") or action.get("feedback_to_agent") or ""
+    return json.dumps({"action_type": action.get("action_type", "?"), "msg_preview": msg[:120]})
+
+
+_FALLBACKS = {
+    "support_agent": {"action_type": "respond",           "message": "I understand your concern. Let me look into this immediately and resolve it for you."},
+    "supervisor":    {"action_type": "supervisor_approve", "message": "Approved — good empathy and clear resolution."},
+    "manager":       {"action_type": "manager_resolve",    "message": "I am personally escalating this to our senior engineering team for immediate resolution."},
+}
+
+
+# ── Episode runners ───────────────────────────────────────────────────────────
 
 def run_task(task_name: str) -> None:
     try:
         r = httpx.post(f"{ENV_URL}/reset", params={"task": task_name}, timeout=30)
         r.raise_for_status()
     except Exception as exc:
-        print(f"[ERROR] Reset failed for task={task_name}: {exc}", file=sys.stderr)
+        print(f"[ERROR] Reset failed task={task_name}: {exc}", file=sys.stderr)
         return
 
-    data = r.json()
-    obs = data["observation"]
+    data       = r.json()
+    obs        = data["observation"]
     session_id = data["session_id"]
-    print(f"[START] task={task_name} env={BENCHMARK} model={MODEL_NAME}")
+    model_tag  = INFERENCE_MODEL if INFERENCE_BACKEND == "local" else _NIM_MODEL
+    print(f"[START] task={task_name} env={BENCHMARK} model={model_tag} backend={INFERENCE_BACKEND}")
 
     rewards, step, done, score = [], 0, False, 0.0
     while not done and step < MAX_STEPS:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": build_prompt(obs)}]
         try:
-            action_str, _ = call_llm(messages)
-            action = parse_action(action_str)
-        except Exception:
-            action = {"action_type": "close", "message": "Closing ticket due to error."}
+            raw    = call_llm(build_messages(obs))
+            action = parse_action(raw)
+        except Exception as exc:
+            print(f"[WARN] LLM/parse error: {exc}", file=sys.stderr)
+            action = _FALLBACKS["support_agent"]
 
         try:
-            step_r = httpx.post(f"{ENV_URL}/step", params={"session_id": session_id}, json=action, timeout=30)
-            step_r.raise_for_status()
-            result = step_r.json()
+            sr = httpx.post(f"{ENV_URL}/step", params={"session_id": session_id}, json=action, timeout=30)
+            sr.raise_for_status()
+            result = sr.json()
         except Exception as exc:
-            print(f"[STEP] step={step+1} action={_safe_action_log(action)} reward=0.00 done=false error={exc}")
+            print(f"[STEP] step={step+1} action={_safe_log(action)} reward=0.00 done=false error={exc}")
             break
 
-        obs = result["observation"]
+        obs        = result["observation"]
         reward_val = result["reward"]["value"]
-        done = result["done"]
+        done       = result["done"]
         rewards.append(reward_val)
-        step += 1
-        score = result.get("final_score", reward_val) if done else reward_val
-        print(f"[STEP] step={step} action={_safe_action_log(action)} reward={reward_val:.2f} done={'true' if done else 'false'} error=null")
+        step      += 1
+        score      = result.get("final_score", reward_val) if done else reward_val
+        print(f"[STEP] step={step} action={_safe_log(action)} reward={reward_val:.2f} done={'true' if done else 'false'} error=null")
 
     print(f"[END] success={'true' if done and score >= 0.5 else 'false'} steps={step} score={score:.2f} rewards={','.join(f'{r:.2f}' for r in rewards)}")
 
-
-# ── Hierarchical task runner ───────────────────────────────────────────────────
 
 def run_hierarchy_task(task_name: str) -> None:
     try:
         r = httpx.post(f"{ENV_URL}/reset", params={"task": task_name}, timeout=30)
         r.raise_for_status()
     except Exception as exc:
-        print(f"[ERROR] Reset failed for task={task_name}: {exc}", file=sys.stderr)
+        print(f"[ERROR] Reset failed task={task_name}: {exc}", file=sys.stderr)
         return
 
-    data = r.json()
-    obs = data["observation"]
+    data       = r.json()
+    obs        = data["observation"]
     session_id = data["session_id"]
-    print(f"[START] task={task_name} env={BENCHMARK} model={MODEL_NAME} mode=hierarchical")
+    model_tag  = INFERENCE_MODEL if INFERENCE_BACKEND == "local" else _NIM_MODEL
+    print(f"[START] task={task_name} env={BENCHMARK} model={model_tag} backend={INFERENCE_BACKEND} mode=hierarchical")
 
     rewards, step, done, score = [], 0, False, 0.0
-
     while not done and step < MAX_STEPS:
-        active_role = obs.get("active_role", "support_agent")
-        sys_prompt, user_prompt = build_hierarchy_prompt(obs, active_role)
-
-        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}]
+        role     = obs.get("active_role", "support_agent")
+        messages = build_hierarchy_messages(obs, role)
         try:
-            action_str, _ = call_llm(messages)
-            action = parse_action(action_str)
+            raw    = call_llm(messages)
+            action = parse_action(raw)
         except Exception as exc:
-            # Fallback actions per role
-            if active_role == "supervisor":
-                action = {"action_type": "supervisor_approve", "message": "Approved."}
-            elif active_role == "manager":
-                action = {"action_type": "manager_resolve", "message": "Escalating to engineering team immediately."}
-            else:
-                action = {"action_type": "close", "message": "Closing due to error."}
+            print(f"[WARN] LLM/parse error role={role}: {exc}", file=sys.stderr)
+            action = _FALLBACKS.get(role, _FALLBACKS["support_agent"])
 
         try:
-            step_r = httpx.post(f"{ENV_URL}/step", params={"session_id": session_id}, json=action, timeout=60)
-            step_r.raise_for_status()
-            result = step_r.json()
+            sr = httpx.post(f"{ENV_URL}/step", params={"session_id": session_id}, json=action, timeout=60)
+            sr.raise_for_status()
+            result = sr.json()
         except Exception as exc:
-            print(f"[STEP] step={step+1} role={active_role} action={_safe_action_log(action)} reward=0.00 done=false error={exc}")
+            print(f"[STEP] step={step+1} role={role} action={_safe_log(action)} reward=0.00 done=false error={exc}")
             break
 
-        obs = result["observation"]
-        reward_val = result["reward"]["value"]
-        done = result["done"]
+        obs          = result["observation"]
+        reward_val   = result["reward"]["value"]
+        done         = result["done"]
         rewards.append(reward_val)
-        step += 1
-        score = result.get("final_score", reward_val) if done else reward_val
-
+        step        += 1
+        score        = result.get("final_score", reward_val) if done else reward_val
         role_rewards = result["reward"].get("role_rewards", {})
         print(
-            f"[STEP] step={step} role={active_role} action={_safe_action_log(action)} "
+            f"[STEP] step={step} role={role} action={_safe_log(action)} "
             f"reward={reward_val:.2f} role_rewards={json.dumps(role_rewards)} "
             f"done={'true' if done else 'false'} error=null"
         )
@@ -369,16 +409,21 @@ def run_hierarchy_task(task_name: str) -> None:
     print(f"[END] success={'true' if done and score >= 0.5 else 'false'} steps={step} score={score:.2f} rewards={','.join(f'{r:.2f}' for r in rewards)}")
 
 
+# ── Entry point ───────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
+    if INFERENCE_BACKEND == "local":
+        _load_local_model()
+
     print("=" * 60)
-    print("ROUND 1: Single-Agent Tasks")
+    print(f"ROUND 1: Single-Agent Tasks  [{INFERENCE_BACKEND.upper()} backend]")
     print("=" * 60)
     for task in TASKS:
         run_task(task)
         print()
 
     print("=" * 60)
-    print("ROUND 2: Hierarchical Multi-Agent Tasks")
+    print(f"ROUND 2: Hierarchical Tasks  [{INFERENCE_BACKEND.upper()} backend]")
     print("=" * 60)
     for task in HIERARCHY_TASKS:
         run_hierarchy_task(task)

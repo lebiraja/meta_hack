@@ -34,6 +34,12 @@ from typing import Optional
 
 import httpx
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 # ── Gold episode collection ───────────────────────────────────────────────────
 
@@ -271,7 +277,7 @@ def parse_args():
                    help="SFT training steps")
     p.add_argument("--out_dir", default="checkpoints/sft",
                    help="Output directory for SFT checkpoint")
-    p.add_argument("--model", default="unsloth/Qwen3-8B")
+    p.add_argument("--model", default=os.environ.get("TRAIN_MODEL", "unsloth/Qwen3-8B"))
     p.add_argument("--env_url", default="http://localhost:7860")
     return p.parse_args()
 

@@ -1,15 +1,27 @@
 """
 train/config.py — All hyperparameters for the GRPO training pipeline.
+
+Model selection (in priority order):
+  1. --model CLI arg  (run_train.py overrides config.model_name after init)
+  2. TRAIN_MODEL env var  (set in .env or as HF Space secret)
+  3. Default: unsloth/Qwen3-8B  (production / HF Spaces)
+
+Local testing on small GPU (≤6GB VRAM):
+  export TRAIN_MODEL=unsloth/Qwen2.5-1.5B-Instruct   # ~1GB at 4-bit
+  export TRAIN_MODEL=unsloth/Qwen2.5-3B-Instruct     # ~2GB at 4-bit
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Optional
+
+_DEFAULT_MODEL = "unsloth/Qwen3-8B"
 
 
 @dataclass
 class TrainConfig:
     # ── Model ──────────────────────────────────────────────────────────────────
-    model_name: str = "unsloth/Qwen3-8B"
+    model_name: str = os.environ.get("TRAIN_MODEL", _DEFAULT_MODEL)
     max_seq_len: int = 4096
     lora_r: int = 16
     lora_alpha: int = 32

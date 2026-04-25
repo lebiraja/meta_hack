@@ -38,11 +38,15 @@ class StepRecord:
     """Data for one step within an episode."""
     prompt: str
     completion: str
-    log_probs: object          # torch.Tensor of shape (comp_tokens,)
+    log_probs: object          # torch.Tensor (C,) — old log-probs from generation
     completion_len: int
     reward_value: float
     done: bool
     final_score: Optional[float]
+    # Token IDs from the actual generation. Used by grpo_trainer to recompute
+    # cur_lp / ref_lp deterministically (avoids BPE boundary length mismatch).
+    prompt_ids: object = None       # torch.Tensor (P,)
+    completion_ids: object = None   # torch.Tensor (C,)
     # Component scores (for logging only)
     empathy_score: float = 0.0
     policy_adherence_score: float = 0.0

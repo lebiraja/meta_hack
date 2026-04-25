@@ -25,7 +25,7 @@ class TrainConfig:
     max_seq_len: int = 4096
     lora_r: int = 16
     lora_alpha: int = 32
-    lora_dropout: float = 0.05
+    lora_dropout: float = 0.0
     load_in_4bit: bool = True
 
     # ── Environment API ────────────────────────────────────────────────────────

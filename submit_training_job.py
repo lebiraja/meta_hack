@@ -40,6 +40,8 @@ FLAVOR           = os.getenv("JOB_FLAVOR",  "a100-large")  # 80GB A100, $2.50/hr
 TIMEOUT          = os.getenv("JOB_TIMEOUT", "15h")
 NVIDIA_API_KEY_1 = os.getenv("NVIDIA_API_KEY_1", "")
 SPACE_REPO       = os.getenv("SPACE_REPO",  "lebiraja/customer-support-env")
+TRAIN_MODEL      = os.getenv("TRAIN_MODEL", "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit")
+TOTAL_STEPS      = os.getenv("TOTAL_STEPS", "3500")
 
 # Unsloth image has CUDA 12.1 + PyTorch + unsloth + trl preinstalled
 IMAGE = "unsloth/unsloth:latest"
@@ -126,6 +128,8 @@ def main():
     print(f"  Image     : {IMAGE}")
     print(f"  Hardware  : {FLAVOR}  (A100 80GB ≈ $2.50/hr)")
     print(f"  Timeout   : {TIMEOUT}")
+    print(f"  Model     : {TRAIN_MODEL}")
+    print(f"  Steps     : {TOTAL_STEPS}")
     print(f"  Push to   : {HF_REPO}")
     print(f"  Space     : NOT needed — env runs inside the job")
     print(f"  Skip SFT  : {SKIP_SFT}  (needs NVIDIA_API_KEY_1 to be useful)")
@@ -144,11 +148,13 @@ def main():
         timeout=TIMEOUT,
         secrets=secrets,
         env={
-            "HF_REPO":    HF_REPO,
-            "SPACE_REPO": SPACE_REPO,
-            "SKIP_SFT":   SKIP_SFT,
-            "SKIP_GRPO":  SKIP_GRPO,
-            "JUDGE_MODE": "terminal_only",
+            "HF_REPO":     HF_REPO,
+            "SPACE_REPO":  SPACE_REPO,
+            "SKIP_SFT":    SKIP_SFT,
+            "SKIP_GRPO":   SKIP_GRPO,
+            "JUDGE_MODE":  "terminal_only",
+            "TRAIN_MODEL": TRAIN_MODEL,
+            "TOTAL_STEPS": TOTAL_STEPS,
         },
         labels={"project": "meta-hack", "type": "grpo-training"},
     )

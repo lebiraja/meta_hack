@@ -69,9 +69,11 @@ def run_one_episode(
         prompt = build_prompt_string(obs, tokenizer, hierarchical=hierarchical)
 
         # ── Generate (serialized through GPU lock) ─────────────────────────────
+        prompt_ids = None
+        completion_ids = None
         try:
             with _generate_lock:
-                completion, log_probs = model_generate(
+                completion, prompt_ids, completion_ids, log_probs = model_generate(
                     model, tokenizer, prompt, config, device
                 )
         except Exception as e:
@@ -114,7 +116,7 @@ def run_one_episode(
             prompt=prompt,
             completion=completion,
             log_probs=log_probs,
-            completion_len=len(tokenizer.encode(completion)) if completion else 1,
+            completion_len=int(completion_ids.shape[0]) if completion_ids is not None else 1,
             reward_value=result.reward_value,
             done=done,
             final_score=result.final_score,
@@ -126,6 +128,8 @@ def run_one_episode(
             accuracy_score=result.accuracy_score,
             role_rewards=result.role_rewards,
             db_signals=db_signals,
+            prompt_ids=prompt_ids,
+            completion_ids=completion_ids,
         ))
 
         obs = result.observation

@@ -35,14 +35,20 @@ def _seq_log_prob(
     prompt: str,
     completion: str,
     device: str,
+    requires_grad: bool = False,
 ) -> Tuple[torch.Tensor, int]:
     """
     Compute sequence log-probs for (prompt, completion).
     Returns (per_token_log_probs, n_tokens).
     Returns zeros tensor of length 1 on failure.
+
+    requires_grad=True is needed for the policy model so that loss.backward()
+    can flow gradients back through the forward pass. Reference / rollout uses
+    default False.
     """
     try:
-        lp = compute_log_probs(model, tokenizer, prompt, completion, device)
+        lp = compute_log_probs(model, tokenizer, prompt, completion, device,
+                                requires_grad=requires_grad)
         return lp, max(1, lp.shape[0])
     except Exception:
         return torch.zeros(1, device=device, requires_grad=True), 1
@@ -79,7 +85,8 @@ def grpo_loss(
 
             # ── Current policy log-probs (with gradient) ──────────────────────
             cur_lp, n_tok = _seq_log_prob(
-                model, tokenizer, step.prompt, step.completion, device
+                model, tokenizer, step.prompt, step.completion, device,
+                requires_grad=True,
             )
 
             # ── Old log-probs (at generation time, no gradient) ───────────────

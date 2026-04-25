@@ -84,11 +84,16 @@ def compute_log_probs(
     prompt: str,
     completion: str,
     device: str = "cuda",
+    requires_grad: bool = False,
 ) -> torch.Tensor:
     """
     Compute per-token log-probabilities of `completion` given `prompt`.
 
     Returns a 1-D tensor of shape (completion_tokens,).
+
+    requires_grad=True keeps gradients flowing through the model forward —
+    needed when computing the current-policy log-probs for the GRPO loss.
+    Default False (rollout / reference model use).
     """
     full_text = prompt + completion
     enc_full = tokenizer(full_text, return_tensors="pt").to(device)
@@ -96,8 +101,11 @@ def compute_log_probs(
 
     prompt_len = enc_prompt["input_ids"].shape[1]
 
-    with torch.no_grad():
+    if requires_grad:
         out = model(**enc_full)
+    else:
+        with torch.no_grad():
+            out = model(**enc_full)
 
     logits = out.logits[0]                          # (seq_len, vocab)
     log_probs_all = torch.log_softmax(logits, dim=-1)

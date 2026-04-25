@@ -65,7 +65,7 @@ echo "[SETUP] Done ✓"
 
 # ── Step 2: Clone the repo (Space repo, since we already mirror to it) ─────
 echo "[SETUP] Cloning repo from huggingface.co/spaces/${SPACE_REPO}..."
-git clone "https://huggingface.co/spaces/${SPACE_REPO}" /workspace/repo
+git clone "https://user:${HF_TOKEN}@huggingface.co/spaces/${SPACE_REPO}" /workspace/repo
 cd /workspace/repo
 pip install -q -e . 2>&1 | tail -3 || true
 echo "[SETUP] Repo ready ✓"

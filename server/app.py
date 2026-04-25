@@ -80,8 +80,39 @@ async def _periodic_sweep():
         if n: 
             logger.info("periodic_sweep", removed=n)
 
+def _maybe_start_training():
+    """
+    If AUTO_TRAIN=1 is set, launch start_training.sh in the background.
+    Output streams to logs/main.log so it's visible in HF Spaces Logs tab.
+    Does nothing if the script is not found or AUTO_TRAIN is not set.
+    """
+    if os.environ.get("AUTO_TRAIN", "0") != "1":
+        return
+    import subprocess, sys
+    script = os.path.join(os.path.dirname(__file__), "..", "start_training.sh")
+    script = os.path.abspath(script)
+    if not os.path.exists(script):
+        logger.warning("AUTO_TRAIN=1 but start_training.sh not found", path=script)
+        return
+    os.makedirs("logs", exist_ok=True)
+    log_file = open("logs/main.log", "a")
+    proc = subprocess.Popen(
+        ["bash", script],
+        stdout=log_file,
+        stderr=log_file,
+        start_new_session=True,   # detach from uvicorn process group
+    )
+    logger.info("AUTO_TRAIN: training pipeline started", pid=proc.pid, log="logs/main.log")
+    print(f"\n{'='*60}", flush=True)
+    print(f"  AUTO_TRAIN=1 detected — training started (PID {proc.pid})", flush=True)
+    print(f"  Logs streaming to: logs/main.log", flush=True)
+    print(f"  Watch via: tail -f logs/main.log | logs/train.log", flush=True)
+    print(f"{'='*60}\n", flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _maybe_start_training()
     task = asyncio.create_task(_periodic_sweep())
     yield
     task.cancel()

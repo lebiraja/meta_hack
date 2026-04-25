@@ -7,7 +7,6 @@ import { useHumanCustomer } from "@/hooks/useHumanCustomer";
 
 // Chat & layout
 import { ChatWindow } from "@/components/chat/ChatWindow";
-import { ActionPanel } from "@/components/action/ActionPanel";
 
 // Demo-mode specific
 import { ModeToggle, type DemoMode } from "@/components/demo/ModeToggle";
@@ -98,10 +97,10 @@ export default function DemoPage() {
               {observation?.environment_event && (
                 <PolicyDriftAlert event={observation.environment_event} />
               )}
-              {observation?.supervisor_feedback && mode !== "customer" && (
+              {observation?.supervisor_feedback && (
                 <SupervisorFeedbackBanner feedback={observation.supervisor_feedback} />
               )}
-              {observation?.manager_directive && mode !== "customer" && (
+              {observation?.manager_directive && (
                 <ManagerDirectiveBanner directive={observation.manager_directive} />
               )}
             </div>
@@ -119,7 +118,7 @@ export default function DemoPage() {
               onSend={humanCustomer.sendCustomerMessage}
             />
           ) : (
-            /* Auto-play and Manual modes: standard chat window */
+            /* Auto-play mode: standard chat window */
             <>
               <div className="flex-1 overflow-y-auto px-3 py-3">
                 {observation ? (
@@ -128,9 +127,7 @@ export default function DemoPage() {
                   <div className="flex flex-col items-center justify-center h-full gap-3">
                     <div className="text-neutral-700 text-3xl select-none">◈</div>
                     <p className="text-sm text-neutral-600 text-center max-w-xs">
-                      {mode === "auto"
-                        ? "Select a task, click New Session, then press Play."
-                        : "Select a task and click New Session to begin."}
+                      Select a task, click New Session, then press Play to watch the AI handle it.
                     </p>
                   </div>
                 )}
@@ -166,16 +163,12 @@ export default function DemoPage() {
                 </div>
               )}
 
-              {/* Bottom controls */}
-              {mode === "auto" ? (
-                <AutoPlayControls
-                  autoPlay={autoPlay}
-                  activeRole={observation?.active_role}
-                  hasSession={!!observation && !isDone}
-                />
-              ) : (
-                <ActionPanel />
-              )}
+              {/* Auto-play controls */}
+              <AutoPlayControls
+                autoPlay={autoPlay}
+                activeRole={observation?.active_role}
+                hasSession={!!observation && !isDone}
+              />
             </>
           )}
         </div>

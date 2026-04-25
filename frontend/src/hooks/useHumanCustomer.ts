@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useSessionStore } from "@/store/session.store";
 import { api } from "@/lib/api";
 import type { Message } from "@/types";
@@ -26,29 +26,13 @@ export function useHumanCustomer(): UseHumanCustomerReturn {
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const seededForSession = useRef<string | null>(null);
-
-  // Clear on session change
+  // Clear on session change — user will type their own opening message
   useEffect(() => {
-    seededForSession.current = null;
     setVirtualMessages([]);
     setError(null);
   }, [sessionId]);
 
-  // Seed the opening customer message once per session.
-  useEffect(() => {
-    if (!observation || seededForSession.current === sessionId) return;
-    const firstCustomerMsg = observation.conversation_history.find(
-      (m) => m.role === "customer"
-    );
-    if (firstCustomerMsg) {
-      setVirtualMessages([firstCustomerMsg]);
-      seededForSession.current = sessionId;
-    }
-  }, [observation, sessionId]);
-
   const resetVirtualMessages = useCallback(() => {
-    seededForSession.current = null;
     setVirtualMessages([]);
     setError(null);
   }, []);

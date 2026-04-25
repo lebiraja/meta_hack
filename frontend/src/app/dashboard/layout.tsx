@@ -5,12 +5,12 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { href: "/dashboard/overview", label: "Overview" },
-  { href: "/dashboard/benchmark", label: "Benchmark" },
-  { href: "/dashboard/sessions", label: "Session Logs" },
-  { href: "/dashboard/leaderboard", label: "Leaderboard" },
-  { href: "/dashboard/test-panel", label: "Test Panel" },
-  { href: "/dashboard/api-inspector", label: "API Inspector" },
+  { href: "/dashboard/overview", label: "Overview", icon: "◈" },
+  { href: "/dashboard/benchmark", label: "Benchmark", icon: "◆" },
+  { href: "/dashboard/sessions", label: "Session Logs", icon: "◇" },
+  { href: "/dashboard/leaderboard", label: "Leaderboard", icon: "★" },
+  { href: "/dashboard/test-panel", label: "Test Panel", icon: "▶" },
+  { href: "/dashboard/api-inspector", label: "API Inspector", icon: "{ }" },
 ];
 
 export default function DashboardLayout({
@@ -23,36 +23,52 @@ export default function DashboardLayout({
   return (
     <div className="h-screen flex overflow-hidden bg-neutral-950">
       {/* Sidebar */}
-      <aside className="w-44 flex-shrink-0 border-r border-neutral-800 flex flex-col py-4">
-        <div className="px-4 mb-5">
+      <aside className="w-52 flex-shrink-0 border-r border-neutral-800 flex flex-col">
+        {/* Logo area */}
+        <div className="px-5 py-4 border-b border-neutral-800">
           <Link
             href="/demo"
-            className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+            className="flex items-center gap-2 group"
           >
-            ← Demo
+            <span className="text-sm font-semibold text-neutral-100">
+              Agent<span className="text-indigo-400">OS</span>
+            </span>
+            <span className="text-[10px] text-neutral-600 group-hover:text-neutral-400 transition-colors">
+              ← Demo
+            </span>
           </Link>
         </div>
-        <div className="px-4 mb-3">
-          <span className="text-[9px] text-neutral-600 uppercase tracking-widest">
+
+        {/* Nav section */}
+        <div className="px-4 pt-5 pb-2">
+          <span className="text-[9px] text-neutral-600 uppercase tracking-widest font-medium">
             Dashboard
           </span>
         </div>
-        <nav className="flex flex-col gap-0.5 px-2 flex-1">
-          {NAV.map(({ href, label }) => (
+        <nav className="flex flex-col gap-0.5 px-3 flex-1">
+          {NAV.map(({ href, label, icon }) => (
             <Link
               key={href}
               href={href}
               className={cn(
-                "px-3 py-2 rounded text-xs transition-colors",
+                "px-3 py-2.5 rounded-lg text-xs transition-all duration-200 flex items-center gap-2.5",
                 pathname === href
-                  ? "bg-indigo-500/15 text-indigo-400"
-                  : "text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800"
+                  ? "bg-indigo-500/15 text-indigo-400 font-medium"
+                  : "text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800/60"
               )}
             >
+              <span className="text-[10px] w-4 text-center opacity-60">{icon}</span>
               {label}
             </Link>
           ))}
         </nav>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-neutral-800">
+          <p className="text-[9px] text-neutral-700">
+            AgentOS v2.1.0
+          </p>
+        </div>
       </aside>
 
       {/* Main content */}

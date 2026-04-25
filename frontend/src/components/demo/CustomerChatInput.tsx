@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { cn, detectHinglish, roleDisplayName } from "@/lib/utils";
 import { ROLE_TEXT_COLORS } from "@/lib/constants";
+import { useSessionStore } from "@/store/session.store";
 import type { Message } from "@/types";
 
 interface Props {
@@ -108,18 +109,28 @@ export function CustomerChatInput({
   error,
   onSend,
 }: Props) {
+  const { sessionId, observation } = useSessionStore();
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const hasSession = !!sessionId && !!observation;
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [virtualMessages.length, isThinking]);
 
+  // Auto-focus the input when a session is created
+  useEffect(() => {
+    if (hasSession && !isDone) {
+      textareaRef.current?.focus();
+    }
+  }, [hasSession, isDone]);
+
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || isThinking || sending || isDone) return;
+    if (!text || isThinking || sending || isDone || !hasSession) return;
     setInput("");
     setSending(true);
     try {
@@ -136,11 +147,26 @@ export function CustomerChatInput({
     <div className="flex flex-col h-full">
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {isEmpty && !isDone ? (
+        {!hasSession ? (
           <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-neutral-600 text-center max-w-xs">
-              Start a session above, then type your first message as the customer.
-            </p>
+            <div className="text-center max-w-xs space-y-2">
+              <div className="text-neutral-700 text-3xl select-none">💬</div>
+              <p className="text-sm text-neutral-600">
+                Select a task and click <span className="text-neutral-400 font-medium">New Session</span> to start chatting as the customer.
+              </p>
+            </div>
+          </div>
+        ) : isEmpty && !isDone ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center max-w-sm space-y-2">
+              <div className="text-neutral-700 text-3xl select-none">✍️</div>
+              <p className="text-sm text-neutral-500">
+                Session ready! Type your issue below as the customer.
+              </p>
+              <p className="text-xs text-neutral-700">
+                Ticket: <span className="text-neutral-500">{observation?.subject}</span>
+              </p>
+            </div>
           </div>
         ) : (
           virtualMessages.map((msg, i) => <VirtualMessage key={i} msg={msg} />)
@@ -169,10 +195,10 @@ export function CustomerChatInput({
           <div className="flex gap-2">
             <textarea
               ref={textareaRef}
-              placeholder="Type your message as the customer…"
+              placeholder={hasSession ? "Type your message as the customer…" : "Start a session first…"}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={isThinking || sending || isEmpty}
+              disabled={isThinking || sending || !hasSession}
               rows={2}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && input.trim()) {
@@ -185,7 +211,7 @@ export function CustomerChatInput({
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim() || isThinking || sending || isEmpty}
+              disabled={!input.trim() || isThinking || sending || !hasSession}
               className="self-end px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-xl
                          font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >

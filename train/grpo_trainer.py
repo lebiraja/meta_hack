@@ -47,6 +47,9 @@ def _seq_log_prob_ids(
         )
         return lp, max(1, lp.shape[0])
     except Exception as e:
+        _seq_log_prob_ids._err_count = getattr(_seq_log_prob_ids, "_err_count", 0) + 1  # type: ignore[attr-defined]
+        if _seq_log_prob_ids._err_count <= 5:  # type: ignore[attr-defined]
+            print(f"[GRPO] log-prob compute error ({type(e).__name__}): {e}")
         return torch.zeros(1, device=device, requires_grad=True), 1
 
 

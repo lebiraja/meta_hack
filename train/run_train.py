@@ -35,6 +35,8 @@ import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+from unsloth import FastLanguageModel
+
 from train.config import TrainConfig
 from train.curriculum import CurriculumScheduler
 from train.env_client import EnvClient
@@ -228,6 +230,11 @@ def train(config: TrainConfig, start_task: str | None, device: str):
         task = curriculum.current_task()
 
         # ── Collect rollouts (episodes_per_step × group_size episodes) ────────
+        # Switch to Unsloth inference mode so fast generation kernels are active.
+        # for_inference() is NOT the same as model.eval() — it re-enables the
+        # Unsloth fast attention patches that were disabled during the last
+        # training pass.
+        FastLanguageModel.for_inference(model)
         all_episodes: list[EpisodeRecord] = []
         all_advantages: list[float] = []
 
@@ -242,7 +249,11 @@ def train(config: TrainConfig, start_task: str | None, device: str):
             all_advantages.extend(advantages)
 
         # ── Compute GRPO loss ─────────────────────────────────────────────────
-        model.train()
+        # for_training() re-enables gradient-supporting LoRA operations so that
+        # model(input_ids=...) produces tensors with requires_grad=True.
+        # Calling only model.train() is NOT sufficient — Unsloth's patches must
+        # be toggled explicitly or the output tensors will not carry gradients.
+        FastLanguageModel.for_training(model)
         loss = grpo_loss(
             all_episodes, all_advantages,
             model, ref_model, tokenizer, config, device
@@ -296,10 +307,10 @@ def train(config: TrainConfig, start_task: str | None, device: str):
             # ── Eval & curriculum advancement ──────────────────────────────────
             if grad_step % config.eval_interval == 0:
                 print(f"\n[EVAL] step={grad_step} task={curriculum.current_task()}")
-                model.eval()
+                FastLanguageModel.for_inference(model)
                 result = evaluate(model, tokenizer, env_client, curriculum.current_task(),
                                   config, device=device)
-                model.train()
+                FastLanguageModel.for_training(model)
 
                 print(
                     f"[EVAL] mean_score={result.mean_final_score:.3f} "

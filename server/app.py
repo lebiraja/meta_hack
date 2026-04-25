@@ -94,19 +94,22 @@ def _maybe_start_training():
     if not os.path.exists(script):
         logger.warning("AUTO_TRAIN=1 but start_training.sh not found", path=script)
         return
-    os.makedirs("logs", exist_ok=True)
-    log_file = open("logs/main.log", "a")
+    # /app is read-only on HF Spaces — write logs to /tmp
+    log_dir = "/tmp/logs"
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "main.log")
+    log_file = open(log_path, "a")
     proc = subprocess.Popen(
         ["bash", script],
         stdout=log_file,
         stderr=log_file,
-        start_new_session=True,   # detach from uvicorn process group
+        start_new_session=True,
+        cwd="/tmp",               # writable working dir for training artifacts
     )
-    logger.info("AUTO_TRAIN: training pipeline started", pid=proc.pid, log="logs/main.log")
+    logger.info("AUTO_TRAIN: training pipeline started", pid=proc.pid, log=log_path)
     print(f"\n{'='*60}", flush=True)
     print(f"  AUTO_TRAIN=1 detected — training started (PID {proc.pid})", flush=True)
-    print(f"  Logs streaming to: logs/main.log", flush=True)
-    print(f"  Watch via: tail -f logs/main.log | logs/train.log", flush=True)
+    print(f"  Logs → {log_path}", flush=True)
     print(f"{'='*60}\n", flush=True)
 
 

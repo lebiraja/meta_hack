@@ -25,12 +25,12 @@ HF_REPO="${HF_REPO:-lebiraja/customer-support-grpo}"
 HF_TOKEN="${HF_TOKEN:-}"
 ENV_URL="${ENV_URL:-http://localhost:7860}"
 JUDGE_PORT="${JUDGE_PORT:-8002}"
-CKPT_DIR="${CKPT_DIR:-checkpoints}"
-MERGED_DIR="${MERGED_DIR:-merged_model}"
+CKPT_DIR="${CKPT_DIR:-/tmp/checkpoints}"
+MERGED_DIR="${MERGED_DIR:-/tmp/merged_model}"
 SKIP_SFT="${SKIP_SFT:-0}"       # set to 1 to skip SFT warmstart
 SKIP_GRPO="${SKIP_GRPO:-0}"     # set to 1 to skip GRPO (merge only)
 
-LOG_DIR="logs"
+LOG_DIR="${LOG_DIR:-/tmp/logs}"
 mkdir -p "$LOG_DIR" "$CKPT_DIR" "$MERGED_DIR"
 
 # ── Colors ────────────────────────────────────────────────────────────────────

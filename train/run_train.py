@@ -40,6 +40,7 @@ from train.curriculum import CurriculumScheduler
 from train.env_client import EnvClient
 from train.evaluate import evaluate
 from train.grpo_trainer import grpo_loss
+from train.local_judge import get_local_judge
 from train.model_utils import load_model, load_ref_model, save_checkpoint
 from train.reward_aggregator import EpisodeRecord, aggregate_reward, grpo_advantages
 from train.rollout_collector import collect_group, run_one_episode
@@ -163,6 +164,16 @@ def train(config: TrainConfig, start_task: str | None, device: str):
     model.to(device)
     ref_model.to(device)
 
+    # Load local judge for fast intermediate-step empathy scoring
+    # Falls back gracefully if model can't load (OOM, missing deps, etc.)
+    local_judge = None
+    if getattr(config, "local_judge_model", ""):
+        local_judge = get_local_judge(config.local_judge_model, device)
+        if local_judge.available:
+            print(f"[LOCAL JUDGE] Loaded {config.local_judge_model} — intermediate steps use local inference")
+        else:
+            print("[LOCAL JUDGE] Failed to load — using API judge for all steps")
+
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=config.learning_rate,
@@ -200,7 +211,10 @@ def train(config: TrainConfig, start_task: str | None, device: str):
         all_advantages: list[float] = []
 
         for _ in range(config.episodes_per_step):
-            group = collect_group(model, tokenizer, env_client, task, config, device)
+            group = collect_group(
+                model, tokenizer, env_client, task, config, device,
+                local_judge=local_judge,
+            )
             rewards = [aggregate_reward(ep, config) for ep in group]
             advantages = grpo_advantages(rewards)
             all_episodes.extend(group)

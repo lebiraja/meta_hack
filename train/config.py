@@ -34,7 +34,7 @@ class TrainConfig:
     env_timeout: int = 60          # seconds per /step call
 
     # ── GRPO ──────────────────────────────────────────────────────────────────
-    group_size: int = 8            # G rollouts per batch item
+    group_size: int = 4            # G rollouts per batch item
     clip_eps: float = 0.2          # PPO clip epsilon
     kl_coef: float = 0.04          # KL penalty weight vs reference model
 
@@ -48,13 +48,24 @@ class TrainConfig:
     # ── Training schedule ─────────────────────────────────────────────────────
     learning_rate: float = 5e-5
     total_steps: int = 5000
-    episodes_per_step: int = 4     # parallel episode batches per gradient step
-    grad_accum: int = 4
+    episodes_per_step: int = 1     # episode batches per gradient step
+    grad_accum: int = 2
     max_grad_norm: float = 0.5
     warmup_steps: int = 50
 
+    # ── Parallel rollout collection ───────────────────────────────────────────
+    # Number of threads to use for parallel episode collection.
+    # Set to 1 to disable parallelism (useful for debugging).
+    rollout_workers: int = 4
+
+    # ── Local judge (Qwen3-1.5B) ─────────────────────────────────────────────
+    # When set, loads a small local model for intermediate step evaluation
+    # instead of calling the API judge. API judge is still used at terminal step.
+    # Set to "" to disable local judge (use API judge for all steps — slower).
+    local_judge_model: str = os.environ.get("LOCAL_JUDGE_MODEL", "unsloth/Qwen3-1.5B-Instruct")
+
     # ── Generation ────────────────────────────────────────────────────────────
-    max_new_tokens: int = 256
+    max_new_tokens: int = 128
     temperature: float = 0.8
     top_p: float = 0.95
     do_sample: bool = True

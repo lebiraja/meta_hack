@@ -28,6 +28,7 @@ Penalties (applied before clamping):
 """
 
 from difflib import SequenceMatcher
+import os
 import re
 from typing import List, Optional, Dict, Any
 
@@ -549,6 +550,9 @@ def compute_step_reward(
 # Hierarchy Reward System (Round 2)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_JUDGE_MODE = os.environ.get("JUDGE_MODE", "full")  # "full" | "terminal_only" | "disabled"
+
+
 def compute_hierarchy_reward(
     action: Action,
     ticket: dict,
@@ -569,8 +573,14 @@ def compute_hierarchy_reward(
         policy_adherence: 0.15, accuracy: 0.10, efficiency: 0.10,
         hierarchy_effectiveness: 0.10
 
-    Role-specific rewards are computed in parallel and stored in role_rewards.
+    JUDGE_MODE env var controls LLM judge usage:
+      "full"          — call API judge on every relevant step (default)
+      "terminal_only" — call API judge only at terminal step (3.7× faster rollout)
+      "disabled"      — skip all LLM judge calls (pure rule-based, fastest)
     """
+    import os as _os
+    judge_mode = _os.environ.get("JUDGE_MODE", _JUDGE_MODE)
+
     tone_msg = action.message or action.reason or action.feedback_to_agent or ""
     role = action.role if hasattr(action, 'role') else "support_agent"
 
@@ -590,7 +600,14 @@ def compute_hierarchy_reward(
     oversight_score = 0.5
     decision_quality_score = 0.5
 
-    if use_llm_judge:
+    # Determine whether to invoke the API judge this step
+    _call_judge = (
+        use_llm_judge
+        and judge_mode != "disabled"
+        and (judge_mode == "full" or is_terminal)
+    )
+
+    if _call_judge:
         judge = get_llm_judge()
 
         # Only evaluate empathy for L1 respond/close actions

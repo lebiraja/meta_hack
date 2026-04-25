@@ -10,7 +10,9 @@ Each call to run_one_episode():
 
 from __future__ import annotations
 
-from typing import List
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Optional
 
 from train.action_parser import get_fallback_action, parse_action
 from train.config import TrainConfig
@@ -18,6 +20,9 @@ from train.env_client import EnvClient
 from train.model_utils import model_generate
 from train.prompt_builder import build_prompt_string
 from train.reward_aggregator import EpisodeRecord, StepRecord
+
+# Generation is not thread-safe — one thread at a time through the GPU
+_generate_lock = threading.Lock()
 
 # Tasks that use HierarchicalCustomerSupportEnv → need role-specific prompts
 _HIERARCHICAL_TASKS = {
@@ -63,11 +68,12 @@ def run_one_episode(
         # ── Build prompt ───────────────────────────────────────────────────────
         prompt = build_prompt_string(obs, tokenizer, hierarchical=hierarchical)
 
-        # ── Generate ───────────────────────────────────────────────────────────
+        # ── Generate (serialized through GPU lock) ─────────────────────────────
         try:
-            completion, log_probs = model_generate(
-                model, tokenizer, prompt, config, device
-            )
+            with _generate_lock:
+                completion, log_probs = model_generate(
+                    model, tokenizer, prompt, config, device
+                )
         except Exception as e:
             # GPU OOM or other generation error — use fallback
             completion = ""
@@ -149,12 +155,53 @@ def collect_group(
     config: TrainConfig,
     device: str = "cuda",
     verbose: bool = False,
+    local_judge=None,
 ) -> List[EpisodeRecord]:
     """
-    Run config.group_size independent episodes for the same task.
-    Returns a list of EpisodeRecords (one per rollout).
+    Run config.group_size independent episodes in parallel using ThreadPoolExecutor.
+
+    GPU generation is serialized via _generate_lock; env I/O and local judge
+    calls run concurrently across threads, giving ~rollout_workers× speedup
+    over sequential collection.
     """
-    return [
-        run_one_episode(model, tokenizer, env_client, task, config, device, verbose)
-        for _ in range(config.group_size)
-    ]
+    workers = getattr(config, "rollout_workers", 1)
+
+    def _run(_):
+        ep = run_one_episode(model, tokenizer, env_client, task, config, device, verbose)
+        if local_judge is not None and not ep.invalid:
+            _apply_local_judge(ep, local_judge)
+        return ep
+
+    if workers <= 1 or config.group_size <= 1:
+        return [_run(None) for _ in range(config.group_size)]
+
+    results: List[EpisodeRecord] = [None] * config.group_size  # type: ignore
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_run, i): i for i in range(config.group_size)}
+        for fut in as_completed(futures):
+            idx = futures[fut]
+            try:
+                results[idx] = fut.result()
+            except Exception as e:
+                ep = EpisodeRecord(task=task)
+                ep.invalid = True
+                ep.invalid_reason = f"thread error: {e}"
+                results[idx] = ep
+    return results
+
+
+def _apply_local_judge(episode: EpisodeRecord, local_judge) -> None:
+    """
+    Post-hoc: replace non-terminal empathy scores with local judge scores.
+    Terminal step scores come from the API judge (higher quality).
+    """
+    for i, step in enumerate(episode.steps):
+        if step.done:
+            continue  # terminal already has API-judged scores
+        try:
+            # Local judge only scores empathy for non-terminal steps
+            new_empathy = local_judge.score_empathy_fast(step.prompt, step.completion)
+            if new_empathy is not None:
+                step.empathy_score = new_empathy
+        except Exception:
+            pass  # keep original score on any error

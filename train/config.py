@@ -36,18 +36,18 @@ class TrainConfig:
     # ── GRPO ──────────────────────────────────────────────────────────────────
     group_size: int = 4            # G rollouts per batch item
     clip_eps: float = 0.2          # PPO clip epsilon
-    kl_coef: float = 0.04          # KL penalty weight vs reference model
+    kl_coef: float = 0.1            # KL penalty weight vs reference model — 0.04 caused collapse in v1
 
     # ── Reward aggregation ────────────────────────────────────────────────────
     # R_episode = step_weight * Σ(γ^t * r_t)  +  terminal_weight * final_score
-    step_weight: float = 0.30
-    terminal_weight: float = 0.70
+    step_weight: float = 0.50      # was 0.30 — boosted since most terminal scores are N/A
+    terminal_weight: float = 0.50  # was 0.70 — reduced to not penalise missing terminal scores
     gamma: float = 0.95            # discount factor
     invalid_penalty: float = -0.5  # reward for unparseable / wrong-role actions
 
     # ── Training schedule ─────────────────────────────────────────────────────
     learning_rate: float = 5e-5
-    total_steps: int = 300
+    total_steps: int = 500
     episodes_per_step: int = 1     # episode batches per gradient step
     grad_accum: int = 1
     max_grad_norm: float = 0.5
@@ -65,7 +65,7 @@ class TrainConfig:
     local_judge_model: str = os.environ.get("LOCAL_JUDGE_MODEL", "unsloth/Qwen2.5-1.5B-Instruct-unsloth-bnb-4bit")
 
     # ── Generation ────────────────────────────────────────────────────────────
-    max_new_tokens: int = 64
+    max_new_tokens: int = 96
     temperature: float = 0.8
     top_p: float = 0.95
     do_sample: bool = True
@@ -88,7 +88,7 @@ class TrainConfig:
     ])
     eval_interval: int = 50        # gradient steps between evals
     eval_episodes: int = 50
-    ckpt_interval: int = 100
+    ckpt_interval: int = 50         # was 100 — save more often to capture best before any collapse
     ckpt_dir: str = "checkpoints"
 
     # Safety: if mean_score < recovery_threshold for recovery_window steps → halve LR

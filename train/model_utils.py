@@ -199,9 +199,10 @@ def model_generate(
 
 # ── Checkpointing ─────────────────────────────────────────────────────────────
 
-def save_checkpoint(model, tokenizer, step: int, config: TrainConfig) -> str:
+def save_checkpoint(model, tokenizer, step: int, config: TrainConfig, tag: str | None = None) -> str:
     """Save LoRA adapter weights + tokenizer. Returns the checkpoint path."""
-    ckpt_path = Path(config.ckpt_dir) / f"step_{step:06d}"
+    name = tag if tag else f"step_{step:06d}"
+    ckpt_path = Path(config.ckpt_dir) / name
     ckpt_path.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(str(ckpt_path))
     tokenizer.save_pretrained(str(ckpt_path))

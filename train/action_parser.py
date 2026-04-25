@@ -82,8 +82,8 @@ def parse_action(
             if not line.startswith("```")
         ).strip()
 
-    # Extract first JSON object
-    match = re.search(r"\{[\s\S]*?\}", cleaned)
+    # Extract outermost JSON object (greedy — captures full object even if message contains {})
+    match = re.search(r"\{[\s\S]*\}", cleaned)
     if not match:
         return None, f"no JSON object found in output: {text[:100]!r}"
 

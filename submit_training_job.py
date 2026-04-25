@@ -32,16 +32,18 @@ from huggingface_hub import run_job, fetch_job_logs, inspect_job
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-HF_REPO          = os.getenv("HF_REPO",     "lebiraja/customer-support-grpo")
-HF_TOKEN         = os.getenv("HF_TOKEN",    "")
-SKIP_SFT         = os.getenv("SKIP_SFT",    "1")   # default skip — needs NIM keys to be useful
-SKIP_GRPO        = os.getenv("SKIP_GRPO",   "0")
-FLAVOR           = os.getenv("JOB_FLAVOR",  "l40sx1")      # L40S 48GB, $1.80/hr — better availability, fits budget
-TIMEOUT          = os.getenv("JOB_TIMEOUT", "12h")
+HF_REPO          = os.getenv("HF_REPO",      "lebiraja/customer-support-grpo-v2")
+HF_REPO_GGUF     = os.getenv("HF_REPO_GGUF", "lebiraja/customer-support-grpo-v2-gguf")
+HF_TOKEN         = os.getenv("HF_TOKEN",     "")
+SKIP_SFT         = os.getenv("SKIP_SFT",     "0")   # SFT warmstart enabled — teaches JSON format
+SKIP_GRPO        = os.getenv("SKIP_GRPO",    "0")
+GGUF_EXPORT      = os.getenv("GGUF_EXPORT",  "1")   # export GGUF Q4 after training
+FLAVOR           = os.getenv("JOB_FLAVOR",   "l40sx1")     # L40S 48GB, $1.80/hr
+TIMEOUT          = os.getenv("JOB_TIMEOUT",  "12h")
 NVIDIA_API_KEY_1 = os.getenv("NVIDIA_API_KEY_1", "")
-SPACE_REPO       = os.getenv("SPACE_REPO",  "lebiraja/customer-support-env")
-TRAIN_MODEL      = os.getenv("TRAIN_MODEL", "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit")
-TOTAL_STEPS      = os.getenv("TOTAL_STEPS", "300")
+SPACE_REPO       = os.getenv("SPACE_REPO",   "lebiraja/customer-support-env")
+TRAIN_MODEL      = os.getenv("TRAIN_MODEL",  "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit")
+TOTAL_STEPS      = os.getenv("TOTAL_STEPS",  "500")
 
 # Unsloth image has CUDA 12.1 + PyTorch + unsloth + trl preinstalled
 IMAGE = "unsloth/unsloth:latest"
@@ -98,6 +100,7 @@ echo "[TRAIN] Starting training pipeline..."
 
 ENV_URL="http://localhost:7860" \
 HF_REPO="${HF_REPO}" \
+HF_REPO_GGUF="${HF_REPO_GGUF}" \
 HF_TOKEN="${HF_TOKEN}" \
 NVIDIA_API_KEY_1="${NVIDIA_API_KEY_1:-}" \
 CKPT_DIR="/workspace/checkpoints" \
@@ -105,6 +108,7 @@ MERGED_DIR="/workspace/merged_model" \
 LOG_DIR="/workspace/logs" \
 SKIP_SFT="${SKIP_SFT}" \
 SKIP_GRPO="${SKIP_GRPO}" \
+GGUF_EXPORT="${GGUF_EXPORT}" \
 JUDGE_MODE="terminal_only" \
 bash start_training.sh
 
@@ -126,15 +130,17 @@ def main():
     print(f"\n{'═'*60}")
     print(f"  Submitting Self-Contained HF Training Job")
     print(f"  Image     : {IMAGE}")
-    print(f"  Hardware  : {FLAVOR}  (L40S 48GB ≈ $1.80/hr — better availability, fits $24 budget)")
-    print(f"  Timeout   : {TIMEOUT}")
-    print(f"  Model     : {TRAIN_MODEL}")
-    print(f"  Steps     : {TOTAL_STEPS}")
-    print(f"  Push to   : {HF_REPO}")
-    print(f"  Space     : NOT needed — env runs inside the job")
-    print(f"  Skip SFT  : {SKIP_SFT}  (needs NVIDIA_API_KEY_1 to be useful)")
-    print(f"  Skip GRPO : {SKIP_GRPO}")
-    print(f"  NIM key   : {'set' if NVIDIA_API_KEY_1 else 'NOT set'}")
+    print(f"  Hardware   : {FLAVOR}  (L40S 48GB ≈ $1.80/hr)")
+    print(f"  Timeout    : {TIMEOUT}")
+    print(f"  Model      : {TRAIN_MODEL}")
+    print(f"  Steps      : {TOTAL_STEPS}")
+    print(f"  Push (16b) : {HF_REPO}")
+    print(f"  Push (GGUF): {HF_REPO_GGUF}")
+    print(f"  Space      : NOT needed — env runs inside the job")
+    print(f"  Skip SFT   : {SKIP_SFT}")
+    print(f"  Skip GRPO  : {SKIP_GRPO}")
+    print(f"  GGUF export: {GGUF_EXPORT}")
+    print(f"  NIM key    : {'set' if NVIDIA_API_KEY_1 else 'NOT set'}")
     print(f"{'═'*60}\n")
 
     secrets = {"HF_TOKEN": HF_TOKEN}
@@ -148,13 +154,15 @@ def main():
         timeout=TIMEOUT,
         secrets=secrets,
         env={
-            "HF_REPO":     HF_REPO,
-            "SPACE_REPO":  SPACE_REPO,
-            "SKIP_SFT":    SKIP_SFT,
-            "SKIP_GRPO":   SKIP_GRPO,
-            "JUDGE_MODE":  "terminal_only",
-            "TRAIN_MODEL": TRAIN_MODEL,
-            "TOTAL_STEPS": TOTAL_STEPS,
+            "HF_REPO":      HF_REPO,
+            "HF_REPO_GGUF": HF_REPO_GGUF,
+            "SPACE_REPO":   SPACE_REPO,
+            "SKIP_SFT":     SKIP_SFT,
+            "SKIP_GRPO":    SKIP_GRPO,
+            "GGUF_EXPORT":  GGUF_EXPORT,
+            "JUDGE_MODE":   "terminal_only",
+            "TRAIN_MODEL":  TRAIN_MODEL,
+            "TOTAL_STEPS":  TOTAL_STEPS,
         },
         labels={"project": "meta-hack", "type": "grpo-training"},
     )

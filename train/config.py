@@ -47,7 +47,7 @@ class TrainConfig:
 
     # ── Training schedule ─────────────────────────────────────────────────────
     learning_rate: float = 5e-5
-    total_steps: int = 250
+    total_steps: int = 300
     episodes_per_step: int = 1     # episode batches per gradient step
     grad_accum: int = 1
     max_grad_norm: float = 0.5

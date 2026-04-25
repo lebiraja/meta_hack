@@ -4,10 +4,17 @@ Supports both single-agent (Round 1) and hierarchical multi-agent (Round 2).
 """
 
 import copy
+import os
 import random
 import re
 import uuid
 from typing import Optional, Dict, Any, List
+
+# Set USE_LLM_JUDGE=false to skip LLM-as-Judge calls during heavy RL training.
+# This removes the NIM API round-trips from every step() call, which can 10×
+# the training throughput. Rule-based fallbacks (0.5) are used in place of
+# empathy/policy/resolution scores. Default: true (full judge enabled).
+_USE_LLM_JUDGE = os.getenv("USE_LLM_JUDGE", "true").lower() not in ("false", "0", "no")
 
 from env.models import (
     Action, ActionType, AgentRole, Message, Observation, Reward,
@@ -450,7 +457,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             is_terminal=False,
             policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
             hierarchy_state=self._hierarchy.model_dump(),
-            use_llm_judge=True,
+            use_llm_judge=_USE_LLM_JUDGE,
             retrieved_data=self._retrieved_data,
         )
         self._update_sentiment(action, reward.tone_score)
@@ -503,7 +510,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             is_terminal=False,
             policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
             hierarchy_state=self._hierarchy.model_dump(),
-            use_llm_judge=True,
+            use_llm_judge=_USE_LLM_JUDGE,
             retrieved_data=self._retrieved_data,
         )
 
@@ -572,7 +579,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
                 is_terminal=True,
                 policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
                 hierarchy_state=self._hierarchy.model_dump(),
-                use_llm_judge=True,
+                use_llm_judge=_USE_LLM_JUDGE,
             )
             reward = terminal_reward
 
@@ -619,7 +626,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             is_terminal=is_terminal,
             policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
             hierarchy_state=self._hierarchy.model_dump(),
-            use_llm_judge=True,
+            use_llm_judge=_USE_LLM_JUDGE,
             retrieved_data=self._retrieved_data,
         )
 

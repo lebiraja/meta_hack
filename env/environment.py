@@ -260,15 +260,21 @@ class CustomerSupportEnv:
         # Minimal reward — actual signal computed in reward_engine via DB signals.
         # Using _clamp_db_total so spam queries can't push the reward above the
         # normal cap, and so wasted-query penalties are bounded.
-        from env.reward_engine import compute_db_signals, _clamp_db_total
+        from env.reward_engine import compute_db_signals, _clamp_db_total, compute_premature_query_penalty
         db_signals = compute_db_signals(action, self._ticket, self._history, self._retrieved_data)
         raw_db = _clamp_db_total(db_signals)
+        premature_penalty = compute_premature_query_penalty(action, self._history)
         import numpy as np
         reward = Reward(
-            value=float(np.clip(0.5 + raw_db, 0.0, 1.0)),
+            value=float(np.clip(0.5 + raw_db + premature_penalty, 0.0, 1.0)),
             resolution_score=0.0, tone_score=0.5,
             efficiency_score=0.0, accuracy_score=0.0,
-            breakdown={"db_signals": db_signals, "is_terminal": False, "action_type": at.value},
+            breakdown={
+                "db_signals": db_signals,
+                "premature_query_penalty": premature_penalty,
+                "is_terminal": False,
+                "action_type": at.value,
+            },
         )
 
         self._action_log.append({

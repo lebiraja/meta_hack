@@ -27,6 +27,8 @@ INFERENCE_MODEL   = (
     or "unsloth/Qwen2.5-1.5B-Instruct"
 )
 ENV_URL    = os.getenv("ENV_URL", "http://localhost:7860")
+ENV_API_KEY = os.getenv("ENV_API_KEY", os.getenv("API_KEY", "meta_hack_2026"))
+_ENV_HEADERS = {"X-API-Key": ENV_API_KEY}
 BENCHMARK  = "customer-support-env"
 TASKS           = ["easy", "medium", "hard"]
 HIERARCHY_TASKS = ["hierarchy_easy", "hierarchy_medium", "hierarchy_hard"]
@@ -158,6 +160,20 @@ ACTION TYPES — output exactly one per step:
 - "query_user_profile"    -> look up customer account (internal)    -> requires: "email"
 - "query_order_details"   -> look up order details (internal)       -> requires: "order_id"
 
+CONVERSATION FLOW — MANDATORY ORDER:
+1. FIRST action MUST be "respond": greet the customer warmly and acknowledge their specific issue.
+2. THEN use "request_info" if you still need information to resolve the issue.
+3. ONLY THEN use "query_user_profile" or "query_order_details" — and only when the customer has
+   explicitly confirmed or provided the email / order ID during the conversation AND you need that
+   data to answer their question.
+4. Finally "respond" with grounded facts, then "close" or "escalate".
+
+CRITICAL DB QUERY RULES:
+- NEVER query the DB as your first action, even if the ticket already shows an email or order ID.
+  Always greet and acknowledge first — querying without greeting is robotic and is penalized.
+- Only query AFTER the customer has confirmed the identifier in the current conversation thread.
+- Never invent data not present in KNOWN DATA or the customer's own messages.
+
 OUTPUT FORMAT — return ONLY this JSON, no code fences, no preamble:
 {"action_type": "...", "message": "..."}   <- for respond / request_info / close
 {"action_type": "escalate", "reason": "..."} <- for escalate
@@ -190,9 +206,22 @@ ACTION TYPES — output exactly one per step:
 - "query_user_profile"    -> look up customer account (internal)    -> requires: "email"
 - "query_order_details"   -> look up order details (internal)       -> requires: "order_id"
 
+CONVERSATION FLOW — MANDATORY ORDER:
+1. FIRST action MUST be "respond": greet the customer warmly by name if possible, acknowledge their issue.
+2. THEN use "request_info" if you still need details to help them.
+3. ONLY THEN query the DB — but ONLY when the customer has explicitly confirmed the email or order ID
+   during this conversation AND you need that data to answer accurately.
+4. Respond with the grounded facts, then "close" or "escalate" as appropriate.
+
+CRITICAL DB QUERY RULES:
+- NEVER issue a DB query as your very first action — always acknowledge the customer first.
+  The ticket description may mention an email or order ID, but greet first. Skipping the greeting
+  is robotic, hurts empathy scores, and incurs a penalty.
+- After querying, cite ONLY values from KNOWN DATA or from the customer's own messages.
+  Never invent facts (amounts, dates, status) not present in retrieved data.
+- If supervisor gave feedback, INCORPORATE it into your next action.
+
 SCORING: Empathy(30%) + Accuracy(25%) + Resolution(25%) + Efficiency(20%)
-Be warm, gather info from "Unresolved issues", use specific resolution language.
-If supervisor gave feedback, INCORPORATE it into your next action.
 
 OUTPUT FORMAT — return ONLY this JSON:
 {{"action_type": "...", "message": "..."}} or {{"action_type": "escalate", "reason": "..."}}"""
@@ -337,7 +366,7 @@ _FALLBACKS = {
 
 def run_task(task_name: str) -> None:
     try:
-        r = httpx.post(f"{ENV_URL}/reset", params={"task": task_name}, timeout=30)
+        r = httpx.post(f"{ENV_URL}/reset", params={"task": task_name}, headers=_ENV_HEADERS, timeout=30)
         r.raise_for_status()
     except Exception as exc:
         print(f"[ERROR] Reset failed task={task_name}: {exc}", file=sys.stderr)
@@ -359,7 +388,7 @@ def run_task(task_name: str) -> None:
             action = _FALLBACKS["support_agent"]
 
         try:
-            sr = httpx.post(f"{ENV_URL}/step", params={"session_id": session_id}, json=action, timeout=30)
+            sr = httpx.post(f"{ENV_URL}/step", params={"session_id": session_id}, json=action, headers=_ENV_HEADERS, timeout=30)
             sr.raise_for_status()
             result = sr.json()
         except Exception as exc:
@@ -379,7 +408,7 @@ def run_task(task_name: str) -> None:
 
 def run_hierarchy_task(task_name: str) -> None:
     try:
-        r = httpx.post(f"{ENV_URL}/reset", params={"task": task_name}, timeout=30)
+        r = httpx.post(f"{ENV_URL}/reset", params={"task": task_name}, headers=_ENV_HEADERS, timeout=30)
         r.raise_for_status()
     except Exception as exc:
         print(f"[ERROR] Reset failed task={task_name}: {exc}", file=sys.stderr)
@@ -403,7 +432,7 @@ def run_hierarchy_task(task_name: str) -> None:
             action = _FALLBACKS.get(role, _FALLBACKS["support_agent"])
 
         try:
-            sr = httpx.post(f"{ENV_URL}/step", params={"session_id": session_id}, json=action, timeout=60)
+            sr = httpx.post(f"{ENV_URL}/step", params={"session_id": session_id}, json=action, headers=_ENV_HEADERS, timeout=60)
             sr.raise_for_status()
             result = sr.json()
         except Exception as exc:

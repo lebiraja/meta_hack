@@ -215,6 +215,27 @@ def compute_contradiction_penalty(action: Action, history: List[Message]) -> flo
     return -0.15 if (prev_claimed_done and now_asking_info) else 0.0
 
 
+def compute_premature_query_penalty(action: Action, history: List[Message]) -> float:
+    """
+    -0.15 if the agent fires a DB query before ever greeting the customer.
+
+    A professional support agent always acknowledges the customer first.
+    Querying the DB as the opening move is robotic, hurts empathy scores, and
+    signals the model is pattern-matching identifiers rather than conversing.
+
+    Only triggers when there are zero prior agent messages in the history, so
+    legitimate second-or-later queries (after a greeting) are never penalized.
+    """
+    if action.action_type not in (
+        ActionType.QUERY_USER_PROFILE, ActionType.QUERY_ORDER_DETAILS
+    ):
+        return 0.0
+    prior_agent = [m for m in history if m.role == "agent" and m.content.strip()]
+    if not prior_agent:
+        return -0.15
+    return 0.0
+
+
 def compute_keyword_stuffing_penalty(message: str) -> float:
     """
     Detect and penalize keyword stuffing.
@@ -449,6 +470,7 @@ def compute_step_reward(
     loop_penalty = compute_loop_penalty(history)
     contradiction_penalty = compute_contradiction_penalty(action, history)
     stuffing_penalty = compute_keyword_stuffing_penalty(tone_msg)
+    premature_query_penalty = compute_premature_query_penalty(action, history)
 
     if is_terminal:
         resolution_score = compute_resolution_score(action, ticket, history)
@@ -481,6 +503,7 @@ def compute_step_reward(
         + escalation_penalty
         + stuffing_penalty
         + info_gathering_bonus
+        + premature_query_penalty
         + db_total
     )
 
@@ -499,6 +522,7 @@ def compute_step_reward(
             "escalation_penalty": escalation_penalty,
             "keyword_stuffing_penalty": stuffing_penalty,
             "info_gathering_bonus": info_gathering_bonus,
+            "premature_query_penalty": premature_query_penalty,
             **{f"db_{k}": v for k, v in db_signals.items()},
             "is_terminal": is_terminal,
         },
@@ -539,6 +563,7 @@ def compute_hierarchy_reward(
     loop_penalty = compute_loop_penalty(history)
     contradiction_penalty = compute_contradiction_penalty(action, history)
     stuffing_penalty = compute_keyword_stuffing_penalty(tone_msg)
+    premature_query_penalty = compute_premature_query_penalty(action, history)
     efficiency_score = compute_efficiency_score(steps_used, max_steps)
     accuracy_score = compute_accuracy_score(history, ticket)
 
@@ -666,6 +691,7 @@ def compute_hierarchy_reward(
             + escalation_penalty
             + ignored_feedback_penalty
             + unnecessary_manager_penalty
+            + premature_query_penalty
             + db_total
         )
     else:
@@ -681,6 +707,7 @@ def compute_hierarchy_reward(
             + stuffing_penalty
             + ignored_feedback_penalty
             + unnecessary_manager_penalty
+            + premature_query_penalty
             + db_total
         )
 
@@ -754,6 +781,7 @@ def compute_hierarchy_reward(
             "keyword_stuffing_penalty": stuffing_penalty,
             "ignored_feedback_penalty": ignored_feedback_penalty,
             "unnecessary_manager_penalty": unnecessary_manager_penalty,
+            "premature_query_penalty": premature_query_penalty,
             **{f"db_{k}": v for k, v in db_signals.items()},
             "is_terminal": is_terminal,
             "role": role,

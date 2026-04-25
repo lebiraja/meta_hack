@@ -80,56 +80,8 @@ async def _periodic_sweep():
         if n: 
             logger.info("periodic_sweep", removed=n)
 
-def _maybe_start_training():
-    """
-    If AUTO_TRAIN=1 is set, launch start_training.sh in the background.
-    Output streams to logs/main.log so it's visible in HF Spaces Logs tab.
-    Does nothing if the script is not found or AUTO_TRAIN is not set.
-    """
-    if os.environ.get("AUTO_TRAIN", "0") != "1":
-        return
-    import subprocess, sys
-    script = os.path.join(os.path.dirname(__file__), "..", "start_training.sh")
-    script = os.path.abspath(script)
-    if not os.path.exists(script):
-        logger.warning("AUTO_TRAIN=1 but start_training.sh not found", path=script)
-        return
-    # /app is read-only on HF Spaces — write logs to /tmp
-    log_dir = "/tmp/logs"
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, "main.log")
-    log_file = open(log_path, "a")
-    proc = subprocess.Popen(
-        ["bash", script],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-        cwd="/tmp",
-    )
-
-    # Tee: write to log file AND stream to stdout (visible in HF Spaces Logs tab)
-    import threading
-
-    def _tee(pipe, logf):
-        for line in iter(pipe.readline, b""):
-            text = line.decode("utf-8", errors="replace")
-            sys.stdout.write(text)
-            sys.stdout.flush()
-            logf.write(text)
-            logf.flush()
-        pipe.close()
-
-    threading.Thread(target=_tee, args=(proc.stdout, log_file), daemon=True).start()
-    logger.info("AUTO_TRAIN: training pipeline started", pid=proc.pid, log=log_path)
-    print(f"\n{'='*60}", flush=True)
-    print(f"  AUTO_TRAIN=1 detected — training started (PID {proc.pid})", flush=True)
-    print(f"  Logs → {log_path}", flush=True)
-    print(f"{'='*60}\n", flush=True)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _maybe_start_training()
     task = asyncio.create_task(_periodic_sweep())
     yield
     task.cancel()

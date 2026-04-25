@@ -17,7 +17,7 @@ tags:
   - policy-drift
   - progressive-curriculum
   - meta-hackathon
-short_description: 3-level hierarchical multi-agent RL env with dynamic customers, policy drift, Hinglish, DB-grounded queries, and a 5-stage curriculum
+short_description: 3-level multi-agent RL env — policy drift, Hinglish, GRPO
 ---
 
 <div align="center">

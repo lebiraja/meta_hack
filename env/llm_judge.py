@@ -161,13 +161,31 @@ class LLMJudge:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
     ) -> None:
+        # JUDGE_BASE_URL overrides API_BASE_URL — use it to point at serve_judge.py locally
         self._base_url = base_url or os.getenv(
-            "API_BASE_URL", "https://integrate.api.nvidia.com/v1"
+            "JUDGE_BASE_URL",
+            os.getenv("API_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         )
         self._model = model or os.getenv(
             "JUDGE_MODEL",
             os.getenv("MODEL_NAME", "nvidia/nemotron-super-49b-v1"),
         )
+
+        # Local judge shortcut: single client, no API key rotation needed
+        _local_url = os.getenv("JUDGE_BASE_URL", "")
+        if _local_url and ("localhost" in _local_url or "127.0.0.1" in _local_url):
+            api_key = os.getenv("JUDGE_API_KEY", "local")
+            self._clients = []
+            try:
+                self._clients = [OpenAI(api_key=api_key, base_url=self._base_url)]
+            except Exception as e:
+                logger.warning(f"Failed to create local judge client: {e}")
+            self._lock = threading.Lock()
+            self._key_cycle = cycle(range(len(self._clients))) if self._clients else cycle([])
+            self._current_idx = 0
+            logger.info(f"LLMJudge → local server {self._base_url} model={self._model}")
+            return
+
         # Build one OpenAI client per API key for true round-robin load balancing
         keys = _load_api_keys()
         self._clients: list[OpenAI] = []

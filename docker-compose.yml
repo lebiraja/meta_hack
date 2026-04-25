@@ -11,6 +11,10 @@ services:
     environment:
       - ENV_URL=http://localhost:7860
       - AGENT_MODEL_URL=http://host.docker.internal:8001
+      - JUDGE_MODE=${JUDGE_MODE:-full}
+      - JUDGE_BASE_URL=http://host.docker.internal:8002/v1
+      - JUDGE_MODEL=${JUDGE_MODEL:-nvidia/nemotron-super-49b-v1}
+      - JUDGE_API_KEY=${JUDGE_API_KEY:-local}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

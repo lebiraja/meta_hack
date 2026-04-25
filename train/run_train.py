@@ -40,6 +40,7 @@ from train.curriculum import CurriculumScheduler
 from train.env_client import EnvClient
 from train.evaluate import evaluate
 from train.grpo_trainer import grpo_loss
+from train.local_judge import get_local_judge
 from train.model_utils import load_model, load_ref_model, save_checkpoint
 from train.reward_aggregator import EpisodeRecord, aggregate_reward, grpo_advantages
 from train.rollout_collector import collect_group, run_one_episode
@@ -98,8 +99,21 @@ def rollout_test(config: TrainConfig, task: str, device: str):
     """Run a single episode and print each step."""
     print(f"\n[ROLLOUT TEST] task={task} model={config.model_name}")
     model, tokenizer = load_model(config)
+
+    # Load local judge (same as training)
+    local_judge = None
+    if getattr(config, "local_judge_model", ""):
+        local_judge = get_local_judge(config.local_judge_model, device)
+        if local_judge.available:
+            print(f"[LOCAL JUDGE] Loaded {config.local_judge_model}")
+        else:
+            print("[LOCAL JUDGE] Failed to load — empathy scores will use env defaults")
+
     env_client = EnvClient(config)
-    ep = run_one_episode(model, tokenizer, env_client, task, config, device, verbose=True)
+    from train.rollout_collector import collect_group
+    group = collect_group(model, tokenizer, env_client, task, config, device,
+                          verbose=True, local_judge=local_judge)
+    ep = group[0]
     if ep.invalid:
         print(f"[INVALID] {ep.invalid_reason}")
     else:
@@ -107,6 +121,10 @@ def rollout_test(config: TrainConfig, task: str, device: str):
         print(f"\n[DONE] steps={len(ep.steps)} final_score={final:.3f}")
         reward = aggregate_reward(ep, config)
         print(f"[REWARD] R_episode={reward:.4f}")
+        print("\n[STEP BREAKDOWN]")
+        for i, s in enumerate(ep.steps):
+            print(f"  step {i+1:02d} | reward={s.reward_value:.3f} empathy={s.empathy_score:.3f} "
+                  f"tone={s.tone_score:.3f} done={s.done}")
 
 
 def loss_test(config: TrainConfig, device: str):
@@ -160,8 +178,18 @@ def train(config: TrainConfig, start_task: str | None, device: str):
     # ── Setup ─────────────────────────────────────────────────────────────────
     model, tokenizer = load_model(config)
     ref_model = load_ref_model(config)
-    model.to(device)
-    ref_model.to(device)
+    # Note: bnb 4-bit models are placed on GPU at load time by Unsloth;
+    # calling .to(device) on them raises ValueError. Skip the move.
+
+    # Load local judge for fast intermediate-step empathy scoring
+    # Falls back gracefully if model can't load (OOM, missing deps, etc.)
+    local_judge = None
+    if getattr(config, "local_judge_model", ""):
+        local_judge = get_local_judge(config.local_judge_model, device)
+        if local_judge.available:
+            print(f"[LOCAL JUDGE] Loaded {config.local_judge_model} — intermediate steps use local inference")
+        else:
+            print("[LOCAL JUDGE] Failed to load — using API judge for all steps")
 
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -200,7 +228,10 @@ def train(config: TrainConfig, start_task: str | None, device: str):
         all_advantages: list[float] = []
 
         for _ in range(config.episodes_per_step):
-            group = collect_group(model, tokenizer, env_client, task, config, device)
+            group = collect_group(
+                model, tokenizer, env_client, task, config, device,
+                local_judge=local_judge,
+            )
             rewards = [aggregate_reward(ep, config) for ep in group]
             advantages = grpo_advantages(rewards)
             all_episodes.extend(group)

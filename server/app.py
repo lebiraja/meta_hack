@@ -24,8 +24,9 @@ from typing import Literal, Optional
 from fastapi import FastAPI, HTTPException, Query, Request, Security, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 import os
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -692,20 +693,32 @@ def health(request: Request):
     }
 
 
-@app.get("/")
-@limiter.limit("60/minute")
-def root(request: Request):
-    return {
-        "name": "CustomerSupportEnv",
-        "version": "2.1.0",
-        "description": "Hierarchical multi-agent RL environment with progressive 4-stage curriculum",
-        "docs": "/docs",
-        "health": "/health",
-        "tasks": list(_ALL_TASKS),
-        "curriculum": ["curriculum_basic", "curriculum_supervisor",
-                       "curriculum_full_hierarchy", "curriculum_nightmare"],
-        "endpoints": ["/reset", "/step", "/chat", "/state/{session_id}", "/replay/{session_id}", "/leaderboard", "/health"],
-    }
+_FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "out")
+
+# Serve Next.js static export if it has been built (frontend/out/ exists)
+# Otherwise fall back to JSON API description at "/"
+if os.path.isdir(_FRONTEND_DIR):
+    app.mount("/app", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
+
+    @app.get("/")
+    def root(request: Request):
+        index = os.path.join(_FRONTEND_DIR, "index.html")
+        if os.path.isfile(index):
+            return FileResponse(index)
+        return FileResponse(os.path.join(_FRONTEND_DIR, "404.html"))
+else:
+    @app.get("/")
+    @limiter.limit("60/minute")
+    def root(request: Request):
+        return {
+            "name": "CustomerSupportEnv",
+            "version": "2.1.0",
+            "description": "Hierarchical multi-agent RL environment with progressive 4-stage curriculum",
+            "docs": "/docs",
+            "health": "/health",
+            "tasks": list(_ALL_TASKS),
+            "endpoints": ["/reset", "/step", "/chat", "/state/{session_id}", "/replay/{session_id}", "/leaderboard", "/health"],
+        }
 
 
 def main():

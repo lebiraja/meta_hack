@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-export type DemoMode = "auto" | "customer" | "manual";
+export type DemoMode = "auto" | "customer";
 
 interface Props {
   mode: DemoMode;
@@ -11,17 +11,12 @@ const TABS: { id: DemoMode; label: string; description: string }[] = [
   {
     id: "auto",
     label: "Auto-Play",
-    description: "Watch AI agents handle the ticket",
+    description: "Watch AI agents handle the ticket automatically",
   },
   {
     id: "customer",
     label: "Chat as Customer",
-    description: "Type as the customer, AI responds",
-  },
-  {
-    id: "manual",
-    label: "Manual Agent",
-    description: "You control the agent actions",
+    description: "Type as the customer, AI agent responds",
   },
 ];
 
@@ -34,10 +29,10 @@ export function ModeToggle({ mode, onChange }: Props) {
           onClick={() => onChange(tab.id)}
           title={tab.description}
           className={cn(
-            "px-3 py-1.5 rounded text-xs font-medium transition-colors",
+            "px-4 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
             mode === tab.id
-              ? "bg-neutral-800 text-neutral-100"
-              : "text-neutral-500 hover:text-neutral-300"
+              ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/20"
+              : "text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50"
           )}
         >
           {tab.label}

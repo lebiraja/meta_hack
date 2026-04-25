@@ -194,7 +194,7 @@ def model_generate(
     # .clone() converts inference-mode tensors to regular tensors so they can
     # participate in autograd when reused in grpo_loss (for_inference uses
     # torch.inference_mode() internally, which marks tensors as non-autograd).
-    return parsed_text, prompt_ids[0].detach().clone(), completion_ids.clone(), log_probs
+    return parsed_text, prompt_ids[0].detach().clone(), completion_ids.clone(), log_probs.clone()
 
 
 # ── Checkpointing ─────────────────────────────────────────────────────────────

@@ -31,6 +31,8 @@ try:
 except ImportError:
     pass  # python-dotenv not installed — rely on manually exported env vars
 
+import time
+
 import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -228,16 +230,16 @@ def train(config: TrainConfig, start_task: str | None, device: str):
 
     for global_step in range(config.total_steps * config.grad_accum):
         task = curriculum.current_task()
+        t_step = time.time()
 
-        # ── Collect rollouts (episodes_per_step × group_size episodes) ────────
-        # Switch to Unsloth inference mode so fast generation kernels are active.
-        # for_inference() is NOT the same as model.eval() — it re-enables the
-        # Unsloth fast attention patches that were disabled during the last
-        # training pass.
+        # ── Collect rollouts ──────────────────────────────────────────────────
+        n_eps = config.episodes_per_step * config.group_size
+        print(f"\n[COLLECT] global_step={global_step} task={task} collecting {n_eps} episodes...")
         FastLanguageModel.for_inference(model)
         all_episodes: list[EpisodeRecord] = []
         all_advantages: list[float] = []
 
+        t_collect = time.time()
         for _ in range(config.episodes_per_step):
             group = collect_group(
                 model, tokenizer, env_client, task, config, device,
@@ -247,17 +249,33 @@ def train(config: TrainConfig, start_task: str | None, device: str):
             advantages = grpo_advantages(rewards)
             all_episodes.extend(group)
             all_advantages.extend(advantages)
+        t_collect = time.time() - t_collect
+
+        # ── Rollout summary ───────────────────────────────────────────────────
+        valid_eps = [e for e in all_episodes if not e.invalid and e.steps]
+        invalid_eps = [e for e in all_episodes if e.invalid]
+        all_r = [aggregate_reward(e, config) for e in all_episodes]
+        r_mean = sum(all_r) / max(1, len(all_r))
+        r_min, r_max = min(all_r), max(all_r)
+        print(
+            f"[COLLECT] done in {t_collect:.1f}s | "
+            f"valid={len(valid_eps)}/{len(all_episodes)} | "
+            f"rewards: min={r_min:.3f} mean={r_mean:.3f} max={r_max:.3f}"
+        )
+        if invalid_eps:
+            for e in invalid_eps:
+                print(f"  [INVALID] reason='{e.invalid_reason}'")
 
         # ── Compute GRPO loss ─────────────────────────────────────────────────
-        # for_training() re-enables gradient-supporting LoRA operations so that
-        # model(input_ids=...) produces tensors with requires_grad=True.
-        # Calling only model.train() is NOT sufficient — Unsloth's patches must
-        # be toggled explicitly or the output tensors will not carry gradients.
+        print(f"[LOSS] computing...")
         FastLanguageModel.for_training(model)
+        t_loss = time.time()
         loss = grpo_loss(
             all_episodes, all_advantages,
             model, ref_model, tokenizer, config, device
         )
+        t_loss = time.time() - t_loss
+        print(f"[LOSS] {loss.item():.4f} in {t_loss:.1f}s")
 
         (loss / config.grad_accum).backward()
         accum_loss += loss.item()
@@ -273,6 +291,8 @@ def train(config: TrainConfig, start_task: str | None, device: str):
             scheduler.step()
             optimizer.zero_grad()
             grad_step += 1
+            t_step_total = time.time() - t_step
+            print(f"[STEP] grad_step={grad_step} total_time={t_step_total:.1f}s lr={optimizer.param_groups[0]['lr']:.2e}")
 
             # ── Logging ───────────────────────────────────────────────────────
             if grad_step % config.log_interval == 0:

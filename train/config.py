@@ -47,9 +47,9 @@ class TrainConfig:
 
     # ── Training schedule ─────────────────────────────────────────────────────
     learning_rate: float = 5e-5
-    total_steps: int = 5000
+    total_steps: int = 1000
     episodes_per_step: int = 1     # episode batches per gradient step
-    grad_accum: int = 2
+    grad_accum: int = 1
     max_grad_norm: float = 0.5
     warmup_steps: int = 50
 
@@ -65,7 +65,7 @@ class TrainConfig:
     local_judge_model: str = os.environ.get("LOCAL_JUDGE_MODEL", "unsloth/Qwen2.5-1.5B-Instruct-unsloth-bnb-4bit")
 
     # ── Generation ────────────────────────────────────────────────────────────
-    max_new_tokens: int = 128
+    max_new_tokens: int = 96
     temperature: float = 0.8
     top_p: float = 0.95
     do_sample: bool = True
@@ -86,17 +86,17 @@ class TrainConfig:
         0.50,   # advance from nightmare → multi_domain
         # multi_domain: final stage, no advancement
     ])
-    eval_interval: int = 100       # gradient steps between evals
+    eval_interval: int = 50        # gradient steps between evals
     eval_episodes: int = 50
-    ckpt_interval: int = 200
+    ckpt_interval: int = 100
     ckpt_dir: str = "checkpoints"
 
     # Safety: if mean_score < recovery_threshold for recovery_window steps → halve LR
     recovery_threshold: float = 0.30
-    recovery_window: int = 200
+    recovery_window: int = 100
 
     # ── Logging ───────────────────────────────────────────────────────────────
     wandb_project: str = "meta_hack_grpo"
     wandb_run_name: Optional[str] = None
-    log_interval: int = 10
+    log_interval: int = 5
     use_wandb: bool = True

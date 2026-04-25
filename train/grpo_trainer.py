@@ -83,10 +83,13 @@ def grpo_loss(
 
         for step in episode.steps:
             # Need the actual token IDs to recompute log-probs deterministically.
-            if (step.prompt_ids is None or step.completion_ids is None
-                or not isinstance(step.completion_ids, torch.Tensor)
-                or step.completion_ids.shape[0] == 0):
+            if step.prompt_ids is None or step.completion_ids is None:
                 skipped_empty += 1
+                print(f"  [SKIP] prompt_ids={step.prompt_ids is None} completion_ids={step.completion_ids is None} — missing token IDs")
+                continue
+            if not isinstance(step.completion_ids, torch.Tensor) or step.completion_ids.shape[0] == 0:
+                skipped_empty += 1
+                print(f"  [SKIP] completion_ids empty or wrong type: {type(step.completion_ids)} shape={getattr(step.completion_ids, 'shape', 'N/A')}")
                 continue
 
             # ── Current policy log-probs (with gradient) ──────────────────────
@@ -95,8 +98,13 @@ def grpo_loss(
                 requires_grad=True,
             )
 
-            if cur_lp.shape[0] <= 1 or not cur_lp.requires_grad:
+            if cur_lp.shape[0] <= 1:
                 skipped_empty += 1
+                print(f"  [SKIP] cur_lp too short: shape={cur_lp.shape} — log-prob compute likely threw exception above")
+                continue
+            if not cur_lp.requires_grad:
+                skipped_empty += 1
+                print(f"  [SKIP] cur_lp.requires_grad=False — model not in training mode or inference tensors leaked")
                 continue
 
             # ── Old log-probs (at generation time) ────────────────────────────

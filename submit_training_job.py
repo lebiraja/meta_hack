@@ -36,12 +36,12 @@ HF_REPO          = os.getenv("HF_REPO",     "lebiraja/customer-support-grpo")
 HF_TOKEN         = os.getenv("HF_TOKEN",    "")
 SKIP_SFT         = os.getenv("SKIP_SFT",    "1")   # default skip — needs NIM keys to be useful
 SKIP_GRPO        = os.getenv("SKIP_GRPO",   "0")
-FLAVOR           = os.getenv("JOB_FLAVOR",  "a100-large")  # 80GB A100, $2.50/hr
-TIMEOUT          = os.getenv("JOB_TIMEOUT", "15h")
+FLAVOR           = os.getenv("JOB_FLAVOR",  "h200")        # H200 141GB, $5.00/hr — best steps/$
+TIMEOUT          = os.getenv("JOB_TIMEOUT", "6h")
 NVIDIA_API_KEY_1 = os.getenv("NVIDIA_API_KEY_1", "")
 SPACE_REPO       = os.getenv("SPACE_REPO",  "lebiraja/customer-support-env")
 TRAIN_MODEL      = os.getenv("TRAIN_MODEL", "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit")
-TOTAL_STEPS      = os.getenv("TOTAL_STEPS", "3500")
+TOTAL_STEPS      = os.getenv("TOTAL_STEPS", "1000")
 
 # Unsloth image has CUDA 12.1 + PyTorch + unsloth + trl preinstalled
 IMAGE = "unsloth/unsloth:latest"
@@ -126,7 +126,7 @@ def main():
     print(f"\n{'═'*60}")
     print(f"  Submitting Self-Contained HF Training Job")
     print(f"  Image     : {IMAGE}")
-    print(f"  Hardware  : {FLAVOR}  (A100 80GB ≈ $2.50/hr)")
+    print(f"  Hardware  : {FLAVOR}  (H200 141GB ≈ $5.00/hr — best steps/$ for this workload)")
     print(f"  Timeout   : {TIMEOUT}")
     print(f"  Model     : {TRAIN_MODEL}")
     print(f"  Steps     : {TOTAL_STEPS}")

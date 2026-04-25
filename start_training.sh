@@ -121,7 +121,8 @@ if [ "$SKIP_SFT" = "0" ]; then
             --mode all \
             --n_episodes 200 \
             --steps 500 \
-            --out "$CKPT_DIR/sft" \
+            --out_dir "$CKPT_DIR/sft" \
+            --data "$CKPT_DIR/sft_data.jsonl" \
             2>&1 | tee "$LOG_DIR/sft.log"
         SFT_CKPT="$CKPT_DIR/sft"
         info "  SFT warmstart done ✓ — checkpoint: $SFT_CKPT"

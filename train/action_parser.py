@@ -56,6 +56,39 @@ FALLBACK_ACTIONS: Dict[str, Dict[str, str]] = {
 }
 
 
+def _repair_truncated_json(text: str) -> str | None:
+    """
+    Attempt to close a JSON object that was truncated before the closing brace.
+    Handles the common case where the model outputs valid content but forgets the final "}.
+    """
+    # Find the opening brace
+    start = text.find("{")
+    if start == -1:
+        return None
+    fragment = text[start:].rstrip()
+    if fragment.endswith("}"):
+        return fragment  # already closed, regex should have caught it
+    # Count unmatched double-quotes to detect an open string
+    in_string = False
+    i = 0
+    while i < len(fragment):
+        ch = fragment[i]
+        if ch == "\\" and in_string:
+            i += 2  # skip escaped character
+            continue
+        if ch == '"':
+            in_string = not in_string
+        i += 1
+    if in_string:
+        fragment += '"'  # close the open string
+    fragment += "}"
+    try:
+        json.loads(fragment)
+        return fragment
+    except json.JSONDecodeError:
+        return None
+
+
 def parse_action(
     text: str,
     active_role: str = "support_agent",
@@ -84,11 +117,17 @@ def parse_action(
 
     # Extract outermost JSON object (greedy — captures full object even if message contains {})
     match = re.search(r"\{[\s\S]*\}", cleaned)
-    if not match:
+    raw = match.group(0) if match else None
+
+    # If no closing } found, try to repair truncated JSON (model stopped before closing brace)
+    if raw is None and "{" in cleaned:
+        raw = _repair_truncated_json(cleaned)
+
+    if raw is None:
         return None, f"no JSON object found in output: {text[:100]!r}"
 
     try:
-        action = json.loads(match.group(0))
+        action = json.loads(raw)
     except json.JSONDecodeError as e:
         return None, f"JSON parse error: {e} — text: {text[:100]!r}"
 

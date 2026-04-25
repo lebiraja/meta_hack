@@ -86,9 +86,9 @@ class TrainConfig:
         0.50,   # advance from nightmare → multi_domain
         # multi_domain: final stage, no advancement
     ])
-    eval_interval: int = 50        # gradient steps between evals
+    eval_interval: int = 20        # gradient steps between evals — catch best before collapse
     eval_episodes: int = 50
-    ckpt_interval: int = 50         # was 100 — save more often to capture best before any collapse
+    ckpt_interval: int = 20        # save every 20 steps to capture best before any collapse
     ckpt_dir: str = "checkpoints"
 
     # Safety: if mean_score < recovery_threshold for recovery_window steps → halve LR

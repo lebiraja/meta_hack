@@ -98,13 +98,24 @@ def export_gguf(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[GGUF] Quantizing to {quant.upper()} → {out_path} ...")
-    model.save_pretrained_gguf(str(out_dir), tokenizer, quantization_method=quant)
+    # Unsloth saves to {model_path}_gguf/ directory, NOT to out_dir
+    model.save_pretrained_gguf(model_path, tokenizer, quantization_method=quant)
 
-    # Unsloth names the file based on quant type — locate and rename to canonical name
-    generated = list(out_dir.glob("*.gguf"))
-    if generated and generated[0] != Path(out_path):
-        generated[0].rename(out_path)
-        print(f"[GGUF] Renamed {generated[0].name} → {Path(out_path).name}")
+    # Locate the generated file — Unsloth creates {model_path}_gguf/{name}.{QUANT}.gguf
+    model_basename = Path(model_path).name
+    unsloth_out_dir = Path(model_path).parent / f"{model_basename}_gguf"
+    generated = list(unsloth_out_dir.glob("*.gguf")) if unsloth_out_dir.exists() else []
+    if not generated:
+        # Fallback: search parent directory
+        generated = list(Path(model_path).parent.rglob("*.gguf"))
+
+    if not generated:
+        raise FileNotFoundError(f"No GGUF file found after export. Checked: {unsloth_out_dir}")
+
+    src = generated[0]
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    src.rename(out_path)
+    print(f"[GGUF] Moved {src} → {out_path}")
 
     print(f"[GGUF] Export complete: {out_path} ({Path(out_path).stat().st_size / 1e9:.1f} GB)")
 

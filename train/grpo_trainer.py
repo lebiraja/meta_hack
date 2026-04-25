@@ -72,6 +72,9 @@ def grpo_loss(
     """
     total_loss = torch.tensor(0.0, device=device)
     total_tokens = 0
+    skipped_empty = 0
+    skipped_mismatch = 0
+    used = 0
 
     for episode, adv in zip(rollouts, advantages):
         if episode.invalid or not episode.steps:
@@ -89,21 +92,26 @@ def grpo_loss(
                 requires_grad=True,
             )
 
+            # Skip degenerate cases: cur_lp came back length 1 (the empty-comp
+            # fallback in compute_log_probs). It carries no gradient signal and
+            # would just inject noise into the mean.
+            if cur_lp.shape[0] <= 1 or not cur_lp.requires_grad:
+                skipped_empty += 1
+                continue
+
             # ── Old log-probs (at generation time, no gradient) ───────────────
             if step.log_probs is not None and isinstance(step.log_probs, torch.Tensor):
                 old_lp = step.log_probs.to(device).detach()
-                # Align lengths (generation-time vs recomputed may differ slightly).
-                # Warn once per training run if divergence exceeds 10% — this usually
-                # signals a tokenizer/prompt mismatch between rollout and loss.
-                if abs(cur_lp.shape[0] - old_lp.shape[0]) > max(4, int(0.10 * max(cur_lp.shape[0], 1))):
-                    if not getattr(grpo_loss, "_logprob_warned", False):
-                        print(
-                            f"[GRPO] warn: large log-prob length mismatch "
-                            f"cur={cur_lp.shape[0]} old={old_lp.shape[0]}; "
-                            f"check that tokenizer/prompt match between rollout and loss recompute"
-                        )
-                        grpo_loss._logprob_warned = True  # type: ignore[attr-defined]
-                min_len = min(cur_lp.shape[0], old_lp.shape[0])
+
+                # If lengths are wildly off (>50% divergence), the tokenizer
+                # boundary between prompt and completion shifted between
+                # rollout and recompute. Skip rather than train on garbage.
+                cur_n, old_n = cur_lp.shape[0], old_lp.shape[0]
+                if min(cur_n, old_n) < 0.5 * max(cur_n, old_n):
+                    skipped_mismatch += 1
+                    continue
+
+                min_len = min(cur_n, old_n)
                 cur_lp_aligned = cur_lp[:min_len]
                 old_lp_aligned = old_lp[:min_len]
             else:
@@ -137,6 +145,21 @@ def grpo_loss(
             step_loss = pg.mean() + config.kl_coef * kl.mean()
             total_loss = total_loss + step_loss * min(n_tok, cur_lp_aligned.shape[0])
             total_tokens += min(n_tok, cur_lp_aligned.shape[0])
+            used += 1
+
+    # Periodic diagnostic: print rate of skipped steps so we can monitor whether
+    # the empty-completion / tokenizer-mismatch problem is widespread.
+    total_attempted = used + skipped_empty + skipped_mismatch
+    if total_attempted > 0:
+        skip_rate = (skipped_empty + skipped_mismatch) / total_attempted
+        if skip_rate > 0.3:
+            grpo_loss._high_skip_warns = getattr(grpo_loss, "_high_skip_warns", 0) + 1  # type: ignore[attr-defined]
+            if grpo_loss._high_skip_warns % 20 == 1:  # type: ignore[attr-defined]
+                print(
+                    f"[GRPO] high skip rate {skip_rate:.0%} "
+                    f"(used={used} empty={skipped_empty} mismatch={skipped_mismatch}) — "
+                    f"model may be emitting only <think> blocks"
+                )
 
     if total_tokens == 0:
         return torch.tensor(0.0, device=device, requires_grad=True)

@@ -145,6 +145,7 @@ if [ "$SKIP_GRPO" = "0" ]; then
     JUDGE_MODE="full" \
     python -m train.run_train \
         --no_wandb \
+        --total_steps "${TOTAL_STEPS:-3500}" \
         --ckpt_dir "$CKPT_DIR" \
         2>&1 | tee "$LOG_DIR/train.log"
 

@@ -8,32 +8,75 @@ interface Props {
   isLoading: boolean;
 }
 
-type Mode = "respond" | "request_info" | "escalate" | "close" | null;
+type Mode =
+  | "respond"
+  | "request_info"
+  | "escalate"
+  | "close"
+  | "query_user"
+  | "query_order"
+  | null;
 
 export function SupportAgentActions({ isLoading }: Props) {
   const { submitStep } = useSessionStore();
   const [mode, setMode] = useState<Mode>(null);
   const [message, setMessage] = useState("");
   const [reason, setReason] = useState("");
+  const [email, setEmail] = useState("");
+  const [orderId, setOrderId] = useState("");
+
+  const reset = () => {
+    setMode(null);
+    setMessage("");
+    setReason("");
+    setEmail("");
+    setOrderId("");
+  };
 
   const toggleMode = (m: Exclude<Mode, null>) => {
     setMode((prev) => (prev === m ? null : m));
     setMessage("");
     setReason("");
+    setEmail("");
+    setOrderId("");
   };
 
   const submit = async (action: Action) => {
     await submitStep(action);
-    setMode(null);
-    setMessage("");
-    setReason("");
+    reset();
   };
 
   const actionButtons = [
-    { id: "respond" as const, label: "Respond", color: "bg-indigo-600 hover:bg-indigo-500 text-white" },
-    { id: "request_info" as const, label: "Request Info", color: "bg-neutral-700 hover:bg-neutral-600 text-neutral-100" },
-    { id: "escalate" as const, label: "Escalate", color: "bg-orange-600/80 hover:bg-orange-600 text-white" },
-    { id: "close" as const, label: "Close Ticket", color: "bg-green-700/80 hover:bg-green-700 text-white" },
+    {
+      id: "respond" as const,
+      label: "Respond",
+      color: "bg-indigo-600 hover:bg-indigo-500 text-white",
+    },
+    {
+      id: "request_info" as const,
+      label: "Request Info",
+      color: "bg-neutral-700 hover:bg-neutral-600 text-neutral-100",
+    },
+    {
+      id: "query_user" as const,
+      label: "Query User DB",
+      color: "bg-cyan-700/80 hover:bg-cyan-600 text-white",
+    },
+    {
+      id: "query_order" as const,
+      label: "Query Order DB",
+      color: "bg-teal-700/80 hover:bg-teal-600 text-white",
+    },
+    {
+      id: "escalate" as const,
+      label: "Escalate",
+      color: "bg-orange-600/80 hover:bg-orange-600 text-white",
+    },
+    {
+      id: "close" as const,
+      label: "Close Ticket",
+      color: "bg-green-700/80 hover:bg-green-700 text-white",
+    },
   ];
 
   return (
@@ -71,7 +114,9 @@ export function SupportAgentActions({ isLoading }: Props) {
           />
           <button
             disabled={!message.trim() || isLoading}
-            onClick={() => submit({ action_type: "respond", message, role: "support_agent" })}
+            onClick={() =>
+              submit({ action_type: "respond", message, role: "support_agent" })
+            }
             className="self-end px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded
                        font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -93,7 +138,9 @@ export function SupportAgentActions({ isLoading }: Props) {
           />
           <button
             disabled={!reason.trim() || isLoading}
-            onClick={() => submit({ action_type: "escalate", reason, role: "support_agent" })}
+            onClick={() =>
+              submit({ action_type: "escalate", reason, role: "support_agent" })
+            }
             className="px-3 py-2 bg-orange-600 hover:bg-orange-500 text-white text-xs rounded font-medium
                        transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -103,14 +150,83 @@ export function SupportAgentActions({ isLoading }: Props) {
       )}
 
       {mode === "request_info" && (
-        <button
-          disabled={isLoading}
-          onClick={() => submit({ action_type: "request_info", role: "support_agent" })}
-          className="px-3 py-2 bg-neutral-700 hover:bg-neutral-600 text-neutral-100 text-xs rounded
-                     font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Send Information Request
-        </button>
+        <div className="flex gap-2">
+          <input
+            placeholder="What info do you need from the customer?"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            disabled={isLoading}
+            className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100
+                       placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-indigo-500
+                       disabled:opacity-50"
+          />
+          <button
+            disabled={!message.trim() || isLoading}
+            onClick={() =>
+              submit({ action_type: "request_info", message, role: "support_agent" })
+            }
+            className="px-3 py-2 bg-neutral-700 hover:bg-neutral-600 text-neutral-100 text-xs rounded
+                       font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Send
+          </button>
+        </div>
+      )}
+
+      {mode === "query_user" && (
+        <div className="flex gap-2">
+          <input
+            placeholder="user@example.com — look up the account"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={isLoading}
+            className="flex-1 bg-neutral-900 border border-cyan-700/50 rounded px-3 py-2 text-sm text-neutral-100
+                       placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-cyan-500
+                       disabled:opacity-50 font-mono"
+          />
+          <button
+            disabled={!email.trim() || isLoading}
+            onClick={() =>
+              submit({
+                action_type: "query_user_profile",
+                email: email.trim(),
+                role: "support_agent",
+              })
+            }
+            className="px-3 py-2 bg-cyan-700 hover:bg-cyan-600 text-white text-xs rounded font-medium
+                       transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Query
+          </button>
+        </div>
+      )}
+
+      {mode === "query_order" && (
+        <div className="flex gap-2">
+          <input
+            placeholder="ORD-FD-8821 — look up the order"
+            value={orderId}
+            onChange={(e) => setOrderId(e.target.value)}
+            disabled={isLoading}
+            className="flex-1 bg-neutral-900 border border-teal-700/50 rounded px-3 py-2 text-sm text-neutral-100
+                       placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-teal-500
+                       disabled:opacity-50 font-mono"
+          />
+          <button
+            disabled={!orderId.trim() || isLoading}
+            onClick={() =>
+              submit({
+                action_type: "query_order_details",
+                order_id: orderId.trim(),
+                role: "support_agent",
+              })
+            }
+            className="px-3 py-2 bg-teal-700 hover:bg-teal-600 text-white text-xs rounded font-medium
+                       transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Query
+          </button>
+        </div>
       )}
 
       {mode === "close" && (
@@ -120,7 +236,9 @@ export function SupportAgentActions({ isLoading }: Props) {
           </p>
           <button
             disabled={isLoading}
-            onClick={() => submit({ action_type: "close", role: "support_agent" })}
+            onClick={() =>
+              submit({ action_type: "close", role: "support_agent" })
+            }
             className="px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white text-xs rounded font-medium
                        transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
           >

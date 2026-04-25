@@ -12,14 +12,27 @@ ABOVE THEM: A Manager handles escalated complex cases.
 {supervisor_feedback_section}{manager_directive_section}{policy_section}
 
 ACTION TYPES — output exactly one per step:
-- "respond"      → send a message to the customer  → requires: "message"
-- "request_info" → ask for missing information      → requires: "message"
-- "close"        → close the ticket as resolved     → requires: "message"
-- "escalate"     → hand off to specialist           → requires: "reason"
+- "respond"             → send a message to the customer   → requires: "message"
+- "request_info"        → ask for missing information       → requires: "message"
+- "close"               → close the ticket as resolved      → requires: "message"
+- "escalate"            → hand off to specialist            → requires: "reason"
+- "query_user_profile"  → look up customer DB (internal)    → requires: "email"
+- "query_order_details" → look up order DB (internal)       → requires: "order_id"
+
+CONVERSATION FLOW — MANDATORY ORDER:
+1. FIRST action MUST be "respond": greet the customer warmly and acknowledge their specific issue.
+2. THEN use "request_info" if you still need details before you can help.
+3. ONLY THEN query the DB — but only when the customer has confirmed the email or order ID
+   in this conversation AND you need that data to answer accurately.
+4. Respond with grounded facts, then "close" or "escalate".
+
+CRITICAL DB QUERY RULES:
+- NEVER query the DB as your very first action, even if the ticket already shows an email or order ID.
+  Always greet and acknowledge first. Querying without greeting feels robotic and is penalized.
+- After querying, cite ONLY values from KNOWN DATA or the customer's own messages — never invent facts.
+- If supervisor gave feedback, INCORPORATE it into your next action.
 
 SCORING: Empathy(30%) + Accuracy(25%) + Resolution(25%) + Efficiency(20%)
-Be warm, gather info from "Unresolved issues", use specific resolution language.
-If supervisor gave feedback, INCORPORATE it into your next action.
 
 OUTPUT FORMAT — return ONLY this JSON, no code fences, no explanation:
 {"action_type": "respond", "message": "..."} or {"action_type": "escalate", "reason": "..."}`;
@@ -110,12 +123,29 @@ function buildUserPrompt(obs: Observation, virtualMessages?: Message[]): string 
   const unresolved = obs.unresolved_issues.join(", ") || "none";
   const envEvent = obs.environment_event ? `\n⚠️ POLICY EVENT: ${obs.environment_event}\n` : "";
 
+  // Surface any DB lookups the agent has already made so the LLM can cite
+  // verbatim values instead of hallucinating new ones.
+  const retrieved = obs.retrieved_data;
+  const userEntries = retrieved?.users ? Object.entries(retrieved.users) : [];
+  const orderEntries = retrieved?.orders ? Object.entries(retrieved.orders) : [];
+  let knownData = "";
+  if (userEntries.length > 0 || orderEntries.length > 0) {
+    knownData =
+      "\n## KNOWN DATA (from internal DB — use verbatim, do NOT invent other facts)\n";
+    for (const [email, record] of userEntries.slice(0, 4)) {
+      knownData += `User(${email}): ${JSON.stringify(record)}\n`;
+    }
+    for (const [oid, record] of orderEntries.slice(0, 4)) {
+      knownData += `Order(${oid}): ${JSON.stringify(record)}\n`;
+    }
+  }
+
   return (
     `Ticket: ${obs.subject}\n` +
     `Category: ${obs.category} | Priority: ${obs.priority} | ` +
     `Step: ${obs.step}/${obs.max_steps}\n` +
     `Customer sentiment: ${obs.customer_sentiment.toFixed(2)}\n` +
-    `Unresolved issues: ${unresolved}${envEvent}\n\n` +
+    `Unresolved issues: ${unresolved}${envEvent}${knownData}\n\n` +
     `Conversation:\n${historyText}\n\n` +
     `What is your next action? Output JSON only.`
   );

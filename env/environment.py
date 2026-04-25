@@ -3,6 +3,7 @@ CustomerSupportEnv — core RL environment.
 Supports both single-agent (Round 1) and hierarchical multi-agent (Round 2).
 """
 
+import copy
 import random
 import re
 import uuid
@@ -217,7 +218,7 @@ class CustomerSupportEnv:
             "step": self._step, "max_steps": self._max_steps,
             "sentiment": self._sentiment, "done": self._done,
             "action_log": self._action_log,
-            "retrieved_data": dict(self._retrieved_data),
+            "retrieved_data": copy.deepcopy(self._retrieved_data),
         }
 
     def _build_observation(self) -> Observation:
@@ -232,7 +233,7 @@ class CustomerSupportEnv:
             customer_sentiment=round(self._sentiment, 3),
             mood_trajectory=self._sentiment_history[-3:],
             unresolved_issues=unresolved, is_done=self._done, task=self.task,
-            retrieved_data=dict(self._retrieved_data),
+            retrieved_data=copy.deepcopy(self._retrieved_data),
         )
 
     def _handle_query_action(
@@ -256,16 +257,24 @@ class CustomerSupportEnv:
 
         self._history.append(Message(role="system", content=summary))
 
-        # Minimal reward — actual signal computed in reward_engine via DB signals
-        from env.reward_engine import compute_db_signals
+        # Minimal reward — actual signal computed in reward_engine via DB signals.
+        # Using _clamp_db_total so spam queries can't push the reward above the
+        # normal cap, and so wasted-query penalties are bounded.
+        from env.reward_engine import compute_db_signals, _clamp_db_total, compute_premature_query_penalty
         db_signals = compute_db_signals(action, self._ticket, self._history, self._retrieved_data)
-        raw_db = sum(db_signals.values())
+        raw_db = _clamp_db_total(db_signals)
+        premature_penalty = compute_premature_query_penalty(action, self._history)
         import numpy as np
         reward = Reward(
-            value=float(np.clip(0.5 + raw_db, 0.0, 1.0)),
+            value=float(np.clip(0.5 + raw_db + premature_penalty, 0.0, 1.0)),
             resolution_score=0.0, tone_score=0.5,
             efficiency_score=0.0, accuracy_score=0.0,
-            breakdown={"db_signals": db_signals, "is_terminal": False, "action_type": at.value},
+            breakdown={
+                "db_signals": db_signals,
+                "premature_query_penalty": premature_penalty,
+                "is_terminal": False,
+                "action_type": at.value,
+            },
         )
 
         self._action_log.append({
@@ -637,7 +646,7 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             customer_sentiment=round(self._sentiment, 3),
             mood_trajectory=self._sentiment_history[-3:],
             unresolved_issues=unresolved, is_done=self._done, task=self.task,
-            retrieved_data=dict(self._retrieved_data),
+            retrieved_data=copy.deepcopy(self._retrieved_data),
             active_role=self._active_role.value,
             supervisor_feedback=self._supervisor_feedback,
             manager_directive=self._manager_directive,

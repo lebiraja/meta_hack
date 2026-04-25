@@ -17,6 +17,7 @@ import { CustomerChatInput } from "@/components/demo/CustomerChatInput";
 // Sidebar panels
 import { TicketInfoPanel } from "@/components/panels/TicketInfoPanel";
 import { HierarchyPanel } from "@/components/panels/HierarchyPanel";
+import { RetrievedDataPanel } from "@/components/panels/RetrievedDataPanel";
 import { PolicyContextPanel } from "@/components/panels/PolicyContextPanel";
 import { FrustrationMeter } from "@/components/indicators/FrustrationMeter";
 import { ActiveRoleIndicator } from "@/components/indicators/ActiveRoleIndicator";
@@ -207,6 +208,10 @@ export default function DemoPage() {
                   />
                 </div>
               )}
+
+              <div className="border-t border-neutral-800 pt-3">
+                <RetrievedDataPanel observation={observation} />
+              </div>
 
               {observation.unresolved_issues.length > 0 && (
                 <div className="space-y-1.5">

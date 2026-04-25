@@ -9,13 +9,16 @@ export type TaskName =
   | "curriculum_basic"
   | "curriculum_supervisor"
   | "curriculum_full_hierarchy"
-  | "curriculum_nightmare";
+  | "curriculum_nightmare"
+  | "multi_domain";
 
 export type ActionType =
   | "respond"
   | "escalate"
   | "close"
   | "request_info"
+  | "query_user_profile"
+  | "query_order_details"
   | "supervisor_approve"
   | "supervisor_reject"
   | "supervisor_feedback"
@@ -23,6 +26,15 @@ export type ActionType =
   | "manager_override"
   | "manager_resolve"
   | "manager_send_back";
+
+// Record value from a DB lookup — either the resolved dict or the literal
+// "not_found" sentinel when the email / order_id was not in the DB.
+export type DbRecord = Record<string, unknown> | "not_found";
+
+export interface RetrievedData {
+  users: Record<string, DbRecord>;
+  orders: Record<string, DbRecord>;
+}
 
 export type AgentRole = "support_agent" | "supervisor" | "manager";
 
@@ -67,6 +79,7 @@ export interface Observation {
   environment_event: string | null;
   policy_context: string;
   escalation_chain: string[];
+  retrieved_data?: RetrievedData;
 }
 
 export interface Reward {
@@ -90,6 +103,9 @@ export interface Action {
   role?: AgentRole;
   internal_note?: string | null;
   feedback_to_agent?: string | null;
+  // DB query fields (only used by query_user_profile / query_order_details)
+  email?: string | null;
+  order_id?: string | null;
 }
 
 export interface ActionLogEntry {

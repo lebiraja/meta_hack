@@ -17,7 +17,7 @@ tags:
   - policy-drift
   - progressive-curriculum
   - meta-hackathon
-short_description: 3-level hierarchical multi-agent RL env with dynamic customers, policy drift, Hinglish, and a 4-stage curriculum
+short_description: 3-level hierarchical multi-agent RL env with dynamic customers, policy drift, Hinglish, DB-grounded queries, and a 5-stage curriculum
 ---
 
 <div align="center">
@@ -26,7 +26,7 @@ short_description: 3-level hierarchical multi-agent RL env with dynamic customer
 
 ### *Where AI agents learn to navigate the chaos of real Indian enterprise support — hierarchy, policy changes, Hinglish customers, and SLA pressure, all at once.*
 
-**Team X-Force** · Meta × PyTorch × Scaler OpenEnv Hackathon · **v2.1.0**
+**Team X-Force** · Meta × PyTorch × Scaler OpenEnv Hackathon · **v2.2.0**
 
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-brightgreen?style=for-the-badge)](https://github.com/OpenEnvs)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python)](https://python.org)
@@ -88,7 +88,7 @@ We built a **hierarchical multi-agent customer support environment** using OpenE
 
 All agents share full context, follow role-specific instructions, and adapt dynamically to mid-episode policy changes, frustrated Hinglish-speaking customers, and SLA pressure. This environment trains LLMs to work as a coordinated team — with the speed, consistency, and scalability that human organisations can't match.
 
-> **Our environment is the first to combine all four challenges:** a 3-level agent hierarchy with role-specific rewards, a dynamic LLM-driven customer that degrades into Hinglish under frustration, mid-episode policy drift that forces real-time adaptation, and a progressive 4-stage curriculum that builds each skill incrementally.
+> **Our environment combines five challenges no prior RL env tackles together:** a 3-level agent hierarchy with role-specific rewards, a dynamic LLM-driven customer that degrades into Hinglish under frustration, mid-episode policy drift that forces real-time adaptation, an in-memory DB across three real-world domains (food delivery, e-commerce, ticket booking) that rewards grounded citations and penalises hallucinated facts, and a progressive 5-stage curriculum that builds each skill incrementally.
 
 ---
 
@@ -154,7 +154,7 @@ All agents share full context, follow role-specific instructions, and adapt dyna
 
 ## 📚 Curriculum Design
 
-We use **progressive curriculum learning** — a 4-stage training pipeline where each stage introduces exactly one new dimension of complexity. This prevents catastrophic forgetting and ensures agents build skills incrementally.
+We use **progressive curriculum learning** — a 5-stage training pipeline where each stage introduces exactly one new dimension of complexity. This prevents catastrophic forgetting and ensures agents build skills incrementally. The model graduates from polite single-agent replies → supervisor feedback loops → full hierarchy → adversarial multi-drift → grounded DB queries.
 
 ```
 Stage 1                Stage 2                 Stage 3                  Stage 4
@@ -176,9 +176,10 @@ Stage 1                Stage 2                 Stage 3                  Stage 4
 | **1** | `curriculum_basic` | L1-only: UPI billing queries (₹499 plans, GST invoices). Calm customer. Dense rewards. Learn empathy + resolution fundamentals. | mean_score ≥ 0.65 |
 | **2** | `curriculum_supervisor` | L1 + L2: Payment gateway timeouts, KYC rejections. Supervisor reviews every action. Agent learns to incorporate feedback and iterate. | mean_score ≥ 0.60 |
 | **3** | `curriculum_full_hierarchy` | Full 3-level: Unauthorized ₹2.5L transactions, API outages at 10K RPM. Policy drift guaranteed. All levels must coordinate. | mean_score ≥ 0.55 |
-| **4** | `curriculum_nightmare` | Extreme adversarial: Diwali sale meltdown (gateway down + inventory broken + CEO escalation). Customer screams in Hinglish. Multiple policy drifts. Only agents mastering stages 1–3 can score above 0.5. | — |
+| **4** | `curriculum_nightmare` | Extreme adversarial: Diwali sale meltdown (gateway down + inventory broken + CEO escalation). Customer screams in Hinglish. Multiple policy drifts. Only agents mastering stages 1–3 can score above 0.5. | mean_score ≥ 0.50 |
+| **5** | `multi_domain` | **DB-grounded support**: 30 diverse tickets drawn from an in-memory DB spanning food delivery, e-commerce, and ticket booking. Agent must call `query_user_profile` / `query_order_details` before responding, cite verbatim DB values, and correctly handle `not_found` sentinels. Hallucinating any fact (amount, date, order-id, email) not in the DB or conversation incurs a −0.25 penalty. | final stage |
 
-**Why curriculum?** Direct training on Stage 4 yields mean scores < 0.2. Curriculum training reaches **0.44** — a **120% improvement** — because foundational skills transfer upward.
+**Why curriculum?** Direct training on Stage 4 yields mean scores < 0.2. Curriculum training reaches **0.44** on Stage 4 — a **120% improvement** — because foundational skills transfer upward. Stage 5 then layers DB retrieval on top of an already-competent agent.
 
 ---
 
@@ -220,18 +221,49 @@ Each agent level gets its own reward breakdown to enable independent RLHF per ro
 
 ### Anti-Reward-Hacking Guards
 
-We implement **6 distinct anti-gaming measures** to ensure agents earn rewards through genuine quality:
+We implement **8 distinct anti-gaming measures** to ensure agents earn rewards through genuine quality:
 
 | Guard | Penalty | Detection Method |
 |-------|:-------:|---|
 | **Keyword stuffing** | −0.30 | Word density > 20% resolution/empathy keywords without substance |
-| **Loop detection** | −0.10 | SequenceMatcher ratio > 0.85 between consecutive responses |
+| **Loop detection** | −0.12 | SequenceMatcher ratio > 0.80 among the last 4 agent messages (catches alternating paraphrase loops) |
 | **Contradiction** | −0.15 | Claiming "resolved" then asking for already-provided info |
 | **Policy violation** | −0.25 | Action violates active policy (e.g., promising refund when portal is down) |
-| **Hostile tone** | ×0.4 | VADER negative sentiment on agent message |
-| **Injection attempt** | −0.50 | Prompt injection patterns detected in agent output |
+| **Ignored supervisor feedback** | −0.15 | No overlap between agent's next message and last feedback |
+| **Unnecessary manager escalation** | −0.20 | L2 escalates to L3 on a low/medium-priority ticket |
+| **Unnecessary L1 escalation** | −0.30 | L1 escalates a low/medium-priority ticket |
+| **Hallucination** | −0.25 | Agent cites a fact (amount, date, email, order-id) absent from both the DB and the customer's own messages |
+
+All positive DB signals sum to at most **+0.25** (hard-clamped via `_clamp_db_total`), so no combination of bonuses can overwhelm the weighted reward components.
 
 > **Why this matters:** In our testing, a naive keyword-stuffing agent scored **0.72** without guards. With guards enabled, the same agent drops to **0.31**. Only genuinely helpful behavior scores well.
+
+### DB-Grounded Response System (Stage 5)
+
+The `multi_domain` task plugs an in-memory database into the environment. Agents must explicitly query the DB before referencing customer-specific facts, and the reward engine audits every response for hallucinations.
+
+**DB layout:**
+- **23 users** across `food_delivery`, `e_commerce`, `ticket_booking` domains — each with a status (`active` / `suspended`), loyalty tier, phone, and join date.
+- **40 orders** — each tied to a user, with amounts in ₹, restaurants/items, payment methods, delivery addresses, and domain-specific fields (refund status, cancellation reason, delivery issue codes, etc.).
+- **30 multi-domain tickets** — each carries a `customer_email` and `related_order_ids` that link to the DB, so the grader can check whether the agent queried the right record.
+
+**Two new L1 actions:**
+- `query_user_profile` — look up a customer account by email. Returns the user record dict, or the literal sentinel `"not_found"`.
+- `query_order_details` — look up an order by ID. Returns the order record dict, or `"not_found"`.
+
+Both actions are **internal**: they cost one step, never generate a customer reply, and don't trigger supervisor review. The returned data lives in `observation.retrieved_data` and is serialised into the agent's next prompt inside a `## KNOWN DATA` block.
+
+**DB-specific reward signals** (all bounded, all clamped into a single ±0.25 bucket):
+
+| Signal | Value | Trigger |
+|--------|:-:|---|
+| `query_match_bonus` | +0.08 | Queried the email / order-id the ticket is actually about |
+| `grounded_response_bonus` | +0.10 | Substantive reply (≥30 chars) citing a verbatim DB value (≥4 chars) |
+| `not_found_handling_bonus` | +0.08 | Responded to a `not_found` with `REQUEST_INFO` or `ESCALATE` |
+| `wasted_query_penalty` | −0.08 | Queried an email/order the customer never mentioned |
+| `hallucination_penalty` | −0.25 | Invented an amount, date, email, or order-id not in DB or conversation |
+
+The hallucination check normalises currency tokens (`₹999` ≡ `rs 999` ≡ `999 rupees`) before comparing, so legitimate references aren't mis-flagged.
 
 ---
 
@@ -264,7 +296,7 @@ We implement **6 distinct anti-gaming measures** to ensure agents earn rewards t
 **Key design decisions:**
 
 1. **SFT Warm-start**: Collect 200 gold episodes (score ≥ 0.65) from the NIM baseline agent, then SFT for 500 steps to teach correct action format and basic behavior.
-2. **GRPO (Group Relative Policy Optimization)**: Group size 8, 5000 gradient steps across 4 curriculum stages. The environment API provides all rewards — no separate reward model needed.
+2. **GRPO (Group Relative Policy Optimization)**: Group size 8, 5000 gradient steps across 5 curriculum stages. The environment API provides all rewards — no separate reward model needed.
 3. **Curriculum progression**: The trainer automatically advances to the next stage when mean score over 20 episodes exceeds the threshold.
 4. **LoRA (r=16)**: Memory-efficient fine-tuning with Unsloth on a single GPU (A100 40GB). Full training completes in ~4 hours.
 
@@ -278,7 +310,7 @@ pip install "unsloth[cu124-torch240]"
 # SFT warm-start (collect gold data, then fine-tune)
 python -m train.sft_warmstart --mode all --n_episodes 200 --steps 500
 
-# Full GRPO training (5000 steps, 4-stage curriculum)
+# Full GRPO training (5000 steps, 5-stage curriculum)
 python -m train.run_train --model checkpoints/sft --total_steps 5000
 
 # Merge LoRA adapters for deployment
@@ -446,7 +478,7 @@ This pushes beyond simple chatbots toward truly collaborative agent systems capa
 | **#1 Multi-Agent Interactions** | 3-level hierarchy with 11 distinct action types, supervisor review loops, manager overrides |
 | **#2 Instruction Following** | Policy adherence scoring via LLM-as-Judge, mid-episode policy drift forces dynamic compliance |
 | **#3 Professional Tasks** | Real-world Indian enterprise support: UPI payments, GST invoices, KYC rejections, SLA management |
-| **#4 Self-Improvement** | 4-stage curriculum with auto-advancement, before/after training evidence, reward curve analysis |
+| **#4 Self-Improvement** | 5-stage curriculum with auto-advancement, before/after training evidence, reward curve analysis |
 
 ### Who Benefits
 

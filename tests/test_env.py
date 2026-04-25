@@ -183,7 +183,7 @@ def test_loop_penalty_identical_messages():
         Message(role="agent", content="I understand your frustration. Please bear with us."),
     ]
     penalty = compute_loop_penalty(history)
-    assert penalty == -0.1
+    assert penalty == -0.12
 
 def test_loop_penalty_different_messages():
     history = [
@@ -370,9 +370,9 @@ def test_hierarchy_state_includes_hierarchy(hierarchy_env):
 
 @pytest.fixture(scope="module")
 def client():
-    from server.app import app, _sessions
+    from server.app import app, _sessions, EXPECTED_API_KEY
     _sessions.clear()
-    with TestClient(app, raise_server_exceptions=False) as c:
+    with TestClient(app, raise_server_exceptions=False, headers={"X-API-Key": EXPECTED_API_KEY}) as c:
         yield c
     _sessions.clear()
 

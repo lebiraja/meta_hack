@@ -126,13 +126,36 @@ OUTPUT FORMAT — return ONLY this JSON:
 
 # ── Prompt builders ────────────────────────────────────────────────────────────
 
+# Hard caps to keep the user-context block from eating the generation budget.
+# Cover long multi-turn episodes (30+ messages) without overflowing 4096 tokens.
+_MAX_HISTORY_TURNS = 12       # keep at most the last N messages
+_MAX_DB_RECORDS_EACH = 4      # show at most N user and N order records
+_HISTORY_HEAD_KEEP = 2        # always keep the first 2 messages (customer opener + first agent reply)
+
+
 def _build_user_context(obs: Dict[str, Any]) -> str:
-    """Build the shared user context block (ticket + conversation)."""
+    """Build the shared user context block (ticket + conversation + DB data).
+
+    Truncates long histories and large DB result sets so the prompt never
+    overflows the generation budget. Truncation is visible to the model via
+    ellipsis markers so it can reason about the elision.
+    """
     import json as _json
-    history_text = "\n".join(
-        f"{m['role'].upper()}: {m['content']}"
-        for m in obs.get("conversation_history", [])
-    )
+
+    history = obs.get("conversation_history", []) or []
+    if len(history) > _MAX_HISTORY_TURNS:
+        head = history[:_HISTORY_HEAD_KEEP]
+        tail = history[-(_MAX_HISTORY_TURNS - _HISTORY_HEAD_KEEP):]
+        skipped = len(history) - len(head) - len(tail)
+        history_lines = [f"{m['role'].upper()}: {m['content']}" for m in head]
+        history_lines.append(f"… [{skipped} earlier messages omitted] …")
+        history_lines.extend(f"{m['role'].upper()}: {m['content']}" for m in tail)
+        history_text = "\n".join(history_lines)
+    else:
+        history_text = "\n".join(
+            f"{m['role'].upper()}: {m['content']}" for m in history
+        )
+
     unresolved = ", ".join(obs.get("unresolved_issues", [])) or "none"
     env_event = obs.get("environment_event")
 
@@ -146,18 +169,24 @@ def _build_user_context(obs: Dict[str, Any]) -> str:
     if env_event:
         ctx += f"\n⚠️ ENVIRONMENT EVENT: {env_event}\n"
 
-    # Show DB-retrieved data when present
-    retrieved = obs.get("retrieved_data", {})
-    has_users = bool(retrieved.get("users"))
-    has_orders = bool(retrieved.get("orders"))
-    if has_users or has_orders:
+    # Show DB-retrieved data when present. Cap the number of records shown so
+    # a zealous agent that queried many emails/orders doesn't push conversation
+    # history out of context.
+    retrieved = obs.get("retrieved_data", {}) or {}
+    users = retrieved.get("users") or {}
+    orders = retrieved.get("orders") or {}
+    if users or orders:
         ctx += "\n## KNOWN DATA (from internal DB — use verbatim, do NOT invent other facts)\n"
-        if has_users:
-            for email, record in retrieved["users"].items():
-                ctx += f"User({email}): {_json.dumps(record, ensure_ascii=False)}\n"
-        if has_orders:
-            for oid, record in retrieved["orders"].items():
-                ctx += f"Order({oid}): {_json.dumps(record, ensure_ascii=False)}\n"
+        user_items = list(users.items())[:_MAX_DB_RECORDS_EACH]
+        for email, record in user_items:
+            ctx += f"User({email}): {_json.dumps(record, ensure_ascii=False)}\n"
+        if len(users) > _MAX_DB_RECORDS_EACH:
+            ctx += f"… ({len(users) - _MAX_DB_RECORDS_EACH} more user records truncated) …\n"
+        order_items = list(orders.items())[:_MAX_DB_RECORDS_EACH]
+        for oid, record in order_items:
+            ctx += f"Order({oid}): {_json.dumps(record, ensure_ascii=False)}\n"
+        if len(orders) > _MAX_DB_RECORDS_EACH:
+            ctx += f"… ({len(orders) - _MAX_DB_RECORDS_EACH} more order records truncated) …\n"
 
     ctx += f"\nConversation:\n{history_text}\n\nOutput JSON only."
     return ctx

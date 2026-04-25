@@ -40,7 +40,7 @@ FLAVOR           = os.getenv("JOB_FLAVOR",  "a100-large")  # 80GB A100, $2.50/hr
 TIMEOUT          = os.getenv("JOB_TIMEOUT", "15h")
 NVIDIA_API_KEY_1 = os.getenv("NVIDIA_API_KEY_1", "")
 SPACE_REPO       = os.getenv("SPACE_REPO",  "lebiraja/customer-support-env")
-TRAIN_MODEL      = os.getenv("TRAIN_MODEL", "unsloth/Qwen2.5-7B-Instruct-bnb-4bit")
+TRAIN_MODEL      = os.getenv("TRAIN_MODEL", "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit")
 TOTAL_STEPS      = os.getenv("TOTAL_STEPS", "3500")
 
 # Unsloth image has CUDA 12.1 + PyTorch + unsloth + trl preinstalled

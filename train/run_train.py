@@ -138,6 +138,8 @@ def loss_test(config: TrainConfig, device: str):
     from train.reward_aggregator import StepRecord
 
     fake_episodes = []
+    fake_prompt_ids = torch.randint(0, tokenizer.vocab_size, (10,), device=device)
+    fake_completion_ids = torch.randint(0, tokenizer.vocab_size, (5,), device=device)
     for _ in range(4):
         ep = EpisodeRecord(task="curriculum_basic")
         ep.steps = [
@@ -149,6 +151,8 @@ def loss_test(config: TrainConfig, device: str):
                 reward_value=random.uniform(0.2, 0.8),
                 done=True,
                 final_score=random.uniform(0.3, 0.9),
+                prompt_ids=fake_prompt_ids,
+                completion_ids=fake_completion_ids,
             )
         ]
         fake_episodes.append(ep)

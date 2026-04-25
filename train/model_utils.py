@@ -78,6 +78,54 @@ def load_ref_model(config: TrainConfig):
     return ref_model
 
 
+def compute_log_probs_from_ids(
+    model,
+    prompt_ids: torch.Tensor,        # shape (P,) or (1, P)
+    completion_ids: torch.Tensor,    # shape (C,)
+    device: str = "cuda",
+    requires_grad: bool = False,
+) -> torch.Tensor:
+    """
+    Compute per-token log-probabilities of completion_ids given prompt_ids.
+
+    Uses the EXACT token sequences (no string re-tokenization), so the result
+    is deterministic and the length always equals C. This avoids the BPE
+    boundary bug that plagues prompt+completion string concatenation.
+
+    Returns a 1-D tensor of shape (C,) — log p(completion_ids[i] | prompt_ids, completion_ids[:i]).
+    """
+    if prompt_ids.dim() == 1:
+        prompt_ids = prompt_ids.unsqueeze(0)
+    prompt_ids = prompt_ids.to(device)
+    completion_ids = completion_ids.to(device)
+
+    P = prompt_ids.shape[1]
+    C = completion_ids.shape[0]
+    if C == 0:
+        return torch.zeros(1, device=device, requires_grad=requires_grad)
+
+    full_ids = torch.cat([prompt_ids, completion_ids.unsqueeze(0)], dim=1)  # (1, P+C)
+
+    if requires_grad:
+        out = model(input_ids=full_ids)
+    else:
+        with torch.no_grad():
+            out = model(input_ids=full_ids)
+
+    logits = out.logits[0]                                  # (P+C, vocab)
+    log_probs_all = torch.log_softmax(logits, dim=-1)
+
+    # Position t predicts token t+1. Completion tokens are at absolute positions
+    # [P, P+1, ..., P+C-1]. Their predicting logits sit at [P-1, P, ..., P+C-2].
+    comp_logit_positions = log_probs_all[P - 1 : P + C - 1]  # (C, vocab)
+    per_token_lp = comp_logit_positions.gather(
+        1, completion_ids.unsqueeze(1)
+    ).squeeze(1)                                            # (C,)
+    return per_token_lp
+
+
+# Backward-compat shim: the old string-based API is kept only so any stale
+# import doesn't crash. New code paths must use compute_log_probs_from_ids.
 def compute_log_probs(
     model,
     tokenizer,
@@ -86,44 +134,11 @@ def compute_log_probs(
     device: str = "cuda",
     requires_grad: bool = False,
 ) -> torch.Tensor:
-    """
-    Compute per-token log-probabilities of `completion` given `prompt`.
-
-    Returns a 1-D tensor of shape (completion_tokens,).
-
-    requires_grad=True keeps gradients flowing through the model forward —
-    needed when computing the current-policy log-probs for the GRPO loss.
-    Default False (rollout / reference model use).
-    """
-    full_text = prompt + completion
-    enc_full = tokenizer(full_text, return_tensors="pt").to(device)
     enc_prompt = tokenizer(prompt, return_tensors="pt").to(device)
-
-    prompt_len = enc_prompt["input_ids"].shape[1]
-
-    if requires_grad:
-        out = model(**enc_full)
-    else:
-        with torch.no_grad():
-            out = model(**enc_full)
-
-    logits = out.logits[0]                          # (seq_len, vocab)
-    log_probs_all = torch.log_softmax(logits, dim=-1)
-
-    # Completion token positions: prompt_len-1 to seq_len-1 (shift by 1 for next-token)
-    comp_ids = enc_full["input_ids"][0, prompt_len:]  # (comp_len,)
-    # logits at position t predict token t+1, so we read logits[prompt_len-1 : -1]
-    comp_logits_positions = log_probs_all[prompt_len - 1 : prompt_len - 1 + len(comp_ids)]
-
-    if len(comp_logits_positions) == 0 or len(comp_ids) == 0:
-        return torch.zeros(1, device=device)
-
-    min_len = min(len(comp_logits_positions), len(comp_ids))
-    per_token_lp = comp_logits_positions[:min_len].gather(
-        1, comp_ids[:min_len].unsqueeze(1)
-    ).squeeze(1)
-
-    return per_token_lp
+    enc_comp = tokenizer(completion, add_special_tokens=False, return_tensors="pt").to(device)
+    return compute_log_probs_from_ids(
+        model, enc_prompt["input_ids"], enc_comp["input_ids"][0], device, requires_grad
+    )
 
 
 def model_generate(
@@ -132,15 +147,22 @@ def model_generate(
     prompt: str,
     config: TrainConfig,
     device: str = "cuda",
-) -> Tuple[str, torch.Tensor]:
+) -> Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Generate a completion for a prompt and return (completion_text, log_probs).
+    Generate a completion. Returns (completion_text, prompt_ids, completion_ids, log_probs).
 
-    log_probs: 1-D tensor of per-token log-probs at the time of generation
-               (used as π_θ_old in the GRPO ratio computation).
+    completion_text — the decoded string with <think> blocks stripped, used by
+                      the action parser. May differ from completion_ids.
+    prompt_ids      — exact tokenized prompt (1-D tensor on device).
+    completion_ids  — exact generated tokens from model.generate (1-D, on device).
+    log_probs       — per-token log-probs aligned with completion_ids (1-D, on device).
+
+    Storing prompt_ids + completion_ids is what lets grpo_loss recompute
+    log-probs deterministically — no string round-trip, no BPE boundary bug.
     """
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    prompt_len = inputs["input_ids"].shape[1]
+    prompt_ids = inputs["input_ids"]                # (1, P)
+    P = prompt_ids.shape[1]
 
     with torch.no_grad():
         output_ids = model.generate(
@@ -153,24 +175,23 @@ def model_generate(
             eos_token_id=tokenizer.eos_token_id,
         )
 
-    completion_ids = output_ids[0, prompt_len:]
+    completion_ids = output_ids[0, P:].detach()      # (C,)
     completion_text = tokenizer.decode(completion_ids, skip_special_tokens=True)
 
-    # Strip Qwen3 <think>...</think> blocks from the completion text.
-    # We train only on the final JSON action, not the chain-of-thought reasoning.
-    # Keeping think tokens would waste ~95% of the gradient on non-action text.
+    # Strip <think>...</think> blocks for the parser. We still train on the
+    # full completion_ids (think tokens included) — this matches what the
+    # model actually generated and keeps the log-prob math consistent.
     import re as _re
-    completion_for_training = _re.sub(
+    parsed_text = _re.sub(
         r"<think>[\s\S]*?</think>", "", completion_text, flags=_re.IGNORECASE
-    ).strip()
-    if not completion_for_training:
-        # Model only output a think block with no action — treat as empty
-        completion_for_training = completion_text
+    ).strip() or completion_text
 
-    # Compute log-probs for the generated tokens (used as old_log_probs)
-    log_probs = compute_log_probs(model, tokenizer, prompt, completion_for_training, device)
+    # Compute old log-probs from the actual generated IDs (no re-tokenization)
+    log_probs = compute_log_probs_from_ids(
+        model, prompt_ids, completion_ids, device, requires_grad=False
+    ).detach()
 
-    return completion_for_training, log_probs
+    return parsed_text, prompt_ids[0].detach(), completion_ids, log_probs
 
 
 # ── Checkpointing ─────────────────────────────────────────────────────────────

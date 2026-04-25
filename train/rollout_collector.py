@@ -77,35 +77,28 @@ def run_one_episode(
                     model, tokenizer, prompt, config, device
                 )
         except Exception as e:
-            # GPU OOM or other generation error — use fallback
             completion = ""
             log_probs = None
-            if verbose:
-                print(f"  [WARN] Generation failed at step {step_idx}: {e}")
+            print(f"  [ERROR] Generation failed ep={task} step={step_idx} role={active_role}: {type(e).__name__}: {e}")
 
         # ── Parse action ───────────────────────────────────────────────────────
         action, parse_err = parse_action(completion, active_role)
 
         if action is None:
             if step_idx == 0:
-                # First step invalid — mark whole episode invalid
                 episode.invalid = True
                 episode.invalid_reason = parse_err or "parse failed"
-                # Add a dummy step so aggregate_reward sees episode.invalid=True
+                print(f"  [INVALID] task={task} step=0 reason='{parse_err}' output={completion[:80]!r}")
                 return episode
             else:
-                # Mid-episode parse error — use fallback and continue
                 action = get_fallback_action(active_role)
-                if verbose:
-                    print(f"  [WARN] Parse error at step {step_idx}: {parse_err} → fallback")
+                print(f"  [FALLBACK] task={task} step={step_idx} role={active_role} reason='{parse_err}'")
 
         # ── Step environment ───────────────────────────────────────────────────
         try:
             result = env_client.step(session_id, action)
         except Exception as e:
-            # Network or server error — end episode with partial rewards
-            if verbose:
-                print(f"  [WARN] step() failed at step {step_idx}: {e}")
+            print(f"  [ERROR] env step() failed ep={task} step={step_idx}: {type(e).__name__}: {e}")
             break
 
         done = result.done
@@ -135,8 +128,8 @@ def run_one_episode(
         obs = result.observation
         step_idx += 1
 
+        action_type = action.get("action_type", "?")
         if verbose:
-            action_type = action.get("action_type", "?")
             print(
                 f"  [STEP {step_idx:02d}] role={active_role} "
                 f"action={action_type} "
@@ -148,6 +141,12 @@ def run_one_episode(
         if step_idx >= obs.get("max_steps", 20) + 2:
             break
 
+    if episode.steps:
+        final_score = episode.steps[-1].final_score
+        final_str = f"{final_score:.3f}" if final_score is not None else "N/A"
+        step_rewards = [s.reward_value for s in episode.steps]
+        rewards_str = ", ".join(f"{r:.2f}" for r in step_rewards)
+        print(f"  [EP] task={task} steps={step_idx} final={final_str} step_rewards=[{rewards_str}]")
     return episode
 
 

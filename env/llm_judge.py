@@ -13,6 +13,8 @@ import os
 import json
 import logging
 import re
+import threading
+from itertools import cycle
 from typing import List, Optional, Dict, Any
 
 from openai import OpenAI
@@ -20,6 +22,15 @@ from openai import OpenAI
 from env.models import Message
 
 logger = logging.getLogger(__name__)
+
+def _load_api_keys() -> list[str]:
+    """Collect all NVIDIA_API_KEY_N env vars (N=1..10) that are non-empty."""
+    keys = []
+    for i in range(1, 11):
+        k = os.getenv(f"NVIDIA_API_KEY_{i}", "").strip()
+        if k:
+            keys.append(k)
+    return keys
 
 # ── Rubric Prompts ────────────────────────────────────────────────────────────
 
@@ -143,15 +154,13 @@ Output ONLY a JSON object: {{"score": <float>, "reason": "<brief explanation>"}}
 
 
 class LLMJudge:
-    """Async LLM-as-Judge for semantic reward evaluation."""
+    """LLM-as-Judge for semantic reward evaluation with round-robin key load balancing."""
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
     ) -> None:
-        self._api_key = api_key or os.getenv("NVIDIA_API_KEY_1", "")
         self._base_url = base_url or os.getenv(
             "API_BASE_URL", "https://integrate.api.nvidia.com/v1"
         )
@@ -159,44 +168,70 @@ class LLMJudge:
             "JUDGE_MODEL",
             os.getenv("MODEL_NAME", "nvidia/nemotron-super-49b-v1"),
         )
-        self._client: Optional[OpenAI] = None
-        if self._api_key:
+        # Build one OpenAI client per API key for true round-robin load balancing
+        keys = _load_api_keys()
+        self._clients: list[OpenAI] = []
+        for key in keys:
             try:
-                self._client = OpenAI(
-                    api_key=self._api_key,
-                    base_url=self._base_url,
-                )
+                self._clients.append(OpenAI(api_key=key, base_url=self._base_url))
             except Exception as e:
-                logger.warning(f"Failed to create LLM client for judge: {e}")
+                logger.warning(f"Failed to create LLM client for key ...{key[-6:]}: {e}")
+
+        if not self._clients:
+            logger.warning(
+                "LLMJudge: no NVIDIA_API_KEY_N vars found — all semantic scores default to 0.5. "
+                "Set NVIDIA_API_KEY_1 through NVIDIA_API_KEY_6 to enable the judge."
+            )
+
+        # Thread-safe round-robin cursor
+        self._lock = threading.Lock()
+        self._key_cycle = cycle(range(len(self._clients))) if self._clients else cycle([])
+        self._current_idx = 0
+
+        logger.info(f"LLMJudge initialized with {len(self._clients)} API keys, model={self._model}")
+
+    def _next_client(self) -> Optional[OpenAI]:
+        if not self._clients:
+            return None
+        with self._lock:
+            idx = next(self._key_cycle)
+            self._current_idx = idx
+        return self._clients[idx]
 
     def _call_judge(self, prompt: str) -> float:
-        """Call the LLM judge and parse the score from JSON response."""
-        if self._client is None:
-            return 0.5  # neutral fallback
+        """Call the LLM judge, retrying the next key on failure."""
+        if not self._clients:
+            return 0.5  # neutral fallback — no keys configured
 
-        try:
-            completion = self._client.chat.completions.create(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": "You are a precise evaluation judge. Output ONLY valid JSON."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.1,  # Low temp for consistency
-                max_tokens=150,
-                top_p=0.9,
-            )
-            raw = completion.choices[0].message.content or ""
-            raw = raw.strip()
-            # Extract JSON from response (handle markdown fences)
-            if "```" in raw:
-                raw = re.sub(r"```json?\s*", "", raw)
-                raw = raw.replace("```", "").strip()
-            result = json.loads(raw)
-            score = float(result.get("score", 0.5))
-            return max(0.0, min(1.0, score))
-        except Exception as e:
-            logger.warning(f"LLM Judge call failed: {e}")
-            return 0.3  # below-neutral fallback — API failure should not reward
+        num_keys = len(self._clients)
+        for attempt in range(num_keys):
+            client = self._next_client()
+            if client is None:
+                return 0.5
+            try:
+                completion = client.chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": "You are a precise evaluation judge. Output ONLY valid JSON."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.1,
+                    max_tokens=150,
+                    top_p=0.9,
+                )
+                raw = completion.choices[0].message.content or ""
+                raw = raw.strip()
+                # Extract JSON from response (handle markdown fences)
+                if "```" in raw:
+                    raw = re.sub(r"```json?\s*", "", raw)
+                    raw = raw.replace("```", "").strip()
+                result = json.loads(raw)
+                score = float(result.get("score", 0.5))
+                return max(0.0, min(1.0, score))
+            except Exception as e:
+                logger.warning(f"LLM Judge call failed (attempt {attempt+1}/{num_keys}): {e}")
+                # Try next key on next iteration
+        return 0.3  # below-neutral fallback — all keys failed
 
     @staticmethod
     def _format_history(history: List[Message], max_messages: int = 10) -> str:
@@ -327,8 +362,8 @@ class LLMJudge:
         keyword_count = sum(1 for w in words if w in all_keywords)
         density = keyword_count / len(words)
 
-        # If more than 20% of words are reward keywords, it's stuffing
-        if density > 0.20 and len(words) > 5:
+        # If 20%+ of words are reward keywords, it's stuffing
+        if density >= 0.20 and len(words) > 5:
             logger.info(f"Keyword stuffing detected: density={density:.2f}")
             return 0.15  # Heavy penalty
         return None
@@ -340,7 +375,7 @@ _judge_instance: Optional[LLMJudge] = None
 
 
 def get_llm_judge() -> LLMJudge:
-    """Get or create the singleton LLM judge."""
+    """Get or create the singleton LLM judge (load-balanced across all configured keys)."""
     global _judge_instance
     if _judge_instance is None:
         _judge_instance = LLMJudge()

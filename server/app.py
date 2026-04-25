@@ -27,7 +27,7 @@ from fastapi.security import APIKeyHeader
 import os
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 import httpx
@@ -86,7 +86,38 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+# Requests authenticated with a valid X-API-Key are exempt from rate limits so
+# that training pipelines and test scripts never hit 429 errors.  Unauthenticated
+# browser / public access is still throttled per-IP.
+
+def _rate_limit_key(request: Request) -> str | None:
+    """
+    Key function for slowapi rate limiting.
+
+    Requests with a valid X-API-Key are exempt: returning None causes slowapi
+    to skip the limit entirely (``if all(args)`` guard in __evaluate_limits).
+    This prevents RL training pipelines and automated test scripts from ever
+    hitting 429 errors while keeping public/unauthenticated access throttled.
+    """
+    if request.headers.get("X-API-Key", "") == EXPECTED_API_KEY:
+        return None  # bypass — slowapi skips limit when key is falsy
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=_rate_limit_key, default_limits=["200/minute"])
+
+async def _json_rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Return a proper JSON 429 instead of the default HTML text response.
+    The default handler returns plain text which causes JSONDecodeError in
+    training scripts that always expect JSON."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": f"Rate limit exceeded: {exc.detail}. "
+                      "Add X-API-Key header to bypass limits for training/testing.",
+            "retry_after": getattr(exc, "retry_after", None),
+        },
+        headers={"Retry-After": str(getattr(exc, "retry_after", 60))},
+    )
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 MAX_SESSIONS = 500          # hard cap on concurrent sessions
@@ -117,7 +148,7 @@ app = FastAPI(
 # ── Middleware ─────────────────────────────────────────────────────────────────
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _json_rate_limit_handler)
 
 app.add_middleware(
     CORSMiddleware,

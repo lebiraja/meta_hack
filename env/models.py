@@ -240,6 +240,20 @@ class Reward(BaseModel):
         description="Per-role reward breakdown: {support_agent: x, supervisor: y, manager: z}"
     )
 
+    @model_validator(mode="after")
+    def _round_floats(self):
+        self.value = round(self.value, 4)
+        self.resolution_score = round(self.resolution_score, 4)
+        self.tone_score = round(self.tone_score, 4)
+        self.efficiency_score = round(self.efficiency_score, 4)
+        self.accuracy_score = round(self.accuracy_score, 4)
+        self.empathy_score = round(self.empathy_score, 4)
+        self.oversight_score = round(self.oversight_score, 4)
+        self.decision_quality_score = round(self.decision_quality_score, 4)
+        self.policy_adherence_score = round(self.policy_adherence_score, 4)
+        self.role_rewards = {k: round(v, 4) for k, v in self.role_rewards.items()}
+        return self
+
 
 class Ticket(BaseModel):
     id: str

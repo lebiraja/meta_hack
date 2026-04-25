@@ -217,23 +217,35 @@ def compute_contradiction_penalty(action: Action, history: List[Message]) -> flo
 
 def compute_premature_query_penalty(action: Action, history: List[Message]) -> float:
     """
-    -0.15 if the agent fires a DB query before ever greeting the customer.
+    -0.15 if the agent fires a DB query before greeting AND the queried
+    email/order was never mentioned by the customer.
 
-    A professional support agent always acknowledges the customer first.
-    Querying the DB as the opening move is robotic, hurts empathy scores, and
-    signals the model is pattern-matching identifiers rather than conversing.
-
-    Only triggers when there are zero prior agent messages in the history, so
-    legitimate second-or-later queries (after a greeting) are never penalized.
+    Exempts smart first-turn lookups (e.g. customer gave their email in the
+    opening message) so multi_domain resolution isn't penalized for being fast.
     """
     if action.action_type not in (
         ActionType.QUERY_USER_PROFILE, ActionType.QUERY_ORDER_DETAILS
     ):
         return 0.0
+
     prior_agent = [m for m in history if m.role == "agent" and m.content.strip()]
-    if not prior_agent:
-        return -0.15
-    return 0.0
+    if prior_agent:
+        return 0.0  # Already greeted — never penalize
+
+    # First turn: only penalize if the query target wasn't mentioned by the customer
+    customer_text = " ".join(m.content for m in history if m.role == "customer").lower()
+
+    if action.action_type == ActionType.QUERY_USER_PROFILE:
+        queried_email = (action.email or "").strip().lower()
+        if queried_email and queried_email in customer_text:
+            return 0.0  # Customer mentioned this email → smart lookup, not premature
+
+    if action.action_type == ActionType.QUERY_ORDER_DETAILS:
+        queried_oid = (action.order_id or "").strip().upper()
+        if queried_oid and queried_oid in customer_text.upper():
+            return 0.0  # Customer mentioned this order ID → smart lookup
+
+    return -0.15
 
 
 def compute_keyword_stuffing_penalty(message: str) -> float:
@@ -257,7 +269,7 @@ def compute_keyword_stuffing_penalty(message: str) -> float:
     keyword_count = sum(1 for w in words if w in reward_keywords)
     density = keyword_count / len(words)
 
-    if density > 0.20:
+    if density >= 0.20:
         return -0.30
     return 0.0
 
@@ -379,18 +391,22 @@ def compute_db_signals(
     customer_text_upper = customer_text.upper()
 
     # ── Query match bonus / wasted-query penalty ──────────────────────────────
+    # Wasted query only fires when the queried value appears in neither the
+    # customer's messages NOR the ticket metadata — so agents aren't penalized
+    # for smart lookups using ticket context (e.g. email from the ticket record).
     if at == ActionType.QUERY_USER_PROFILE and action.email:
         queried_email = action.email.strip().lower()
         if ticket_email and queried_email == ticket_email:
             signals["query_match_bonus"] = 0.08
-        elif queried_email and queried_email not in customer_text_lower:
+        elif queried_email and queried_email not in customer_text_lower and queried_email != ticket_email:
             signals["wasted_query_penalty"] = -0.08
 
     if at == ActionType.QUERY_ORDER_DETAILS and action.order_id:
         queried_oid = action.order_id.strip().upper()
-        if ticket_order_ids and queried_oid in [o.upper() for o in ticket_order_ids]:
+        ticket_order_ids_upper = [o.upper() for o in ticket_order_ids]
+        if ticket_order_ids and queried_oid in ticket_order_ids_upper:
             signals["query_match_bonus"] = 0.08
-        elif queried_oid and queried_oid not in customer_text_upper:
+        elif queried_oid and queried_oid not in customer_text_upper and queried_oid not in ticket_order_ids_upper:
             signals["wasted_query_penalty"] = -0.08
 
     # ── Not-found handling bonus ───────────────────────────────────────────────
@@ -626,8 +642,10 @@ def compute_hierarchy_reward(
     resolution_score = (0.4 * resolution_rule + 0.6 * resolution_llm_score) if is_terminal else 0.0
 
     # ── SLA compliance ─────────────────────────────────────────────────────────
+    # Smooth decay: each step over ideal loses 0.10 (not 0.15), floored at 0.1
+    # so even very late resolutions still get a small SLA signal.
     ideal_steps = ticket.get("ideal_max_steps", max_steps)
-    sla_score = 1.0 if steps_used <= ideal_steps else max(0.0, 1.0 - (steps_used - ideal_steps) * 0.15)
+    sla_score = 1.0 if steps_used <= ideal_steps else max(0.1, 1.0 - (steps_used - ideal_steps) * 0.10)
 
     # ── Hierarchy effectiveness ────────────────────────────────────────────────
     hierarchy_score = 0.5  # neutral default

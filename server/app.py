@@ -101,11 +101,25 @@ def _maybe_start_training():
     log_file = open(log_path, "a")
     proc = subprocess.Popen(
         ["bash", script],
-        stdout=log_file,
-        stderr=log_file,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         start_new_session=True,
-        cwd="/tmp",               # writable working dir for training artifacts
+        cwd="/tmp",
     )
+
+    # Tee: write to log file AND stream to stdout (visible in HF Spaces Logs tab)
+    import threading
+
+    def _tee(pipe, logf):
+        for line in iter(pipe.readline, b""):
+            text = line.decode("utf-8", errors="replace")
+            sys.stdout.write(text)
+            sys.stdout.flush()
+            logf.write(text)
+            logf.flush()
+        pipe.close()
+
+    threading.Thread(target=_tee, args=(proc.stdout, log_file), daemon=True).start()
     logger.info("AUTO_TRAIN: training pipeline started", pid=proc.pid, log=log_path)
     print(f"\n{'='*60}", flush=True)
     print(f"  AUTO_TRAIN=1 detected — training started (PID {proc.pid})", flush=True)

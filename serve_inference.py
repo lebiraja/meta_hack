@@ -20,11 +20,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
-INFERENCE_MODEL = (
-    os.getenv("INFERENCE_MODEL")
-    or os.getenv("TRAIN_MODEL")
-    or "unsloth/Qwen2.5-1.5B-Instruct"
-)
+# Priority: INFERENCE_MODEL env var → merged_model/ dir → TRAIN_MODEL → default
+def _resolve_model() -> str:
+    if os.getenv("INFERENCE_MODEL"):
+        return os.getenv("INFERENCE_MODEL")
+    # Auto-detect merged model from training output
+    for candidate in ["merged_model", "checkpoints/final"]:
+        if os.path.isdir(candidate) and any(
+            f.endswith(".safetensors") for f in os.listdir(candidate)
+        ):
+            print(f"[SERVE] Auto-detected trained model at {candidate}/")
+            return candidate
+    return os.getenv("TRAIN_MODEL") or "unsloth/Qwen2.5-1.5B-Instruct"
+
+INFERENCE_MODEL = _resolve_model()
 PORT = int(os.getenv("INFERENCE_PORT", "8001"))
 
 app = FastAPI(title="Local Inference Server")

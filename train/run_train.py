@@ -178,8 +178,8 @@ def train(config: TrainConfig, start_task: str | None, device: str):
     # ── Setup ─────────────────────────────────────────────────────────────────
     model, tokenizer = load_model(config)
     ref_model = load_ref_model(config)
-    model.to(device)
-    ref_model.to(device)
+    # Note: bnb 4-bit models are placed on GPU at load time by Unsloth;
+    # calling .to(device) on them raises ValueError. Skip the move.
 
     # Load local judge for fast intermediate-step empathy scoring
     # Falls back gracefully if model can't load (OOM, missing deps, etc.)

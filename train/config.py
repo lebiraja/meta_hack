@@ -62,7 +62,7 @@ class TrainConfig:
     # When set, loads a small local model for intermediate step evaluation
     # instead of calling the API judge. API judge is still used at terminal step.
     # Set to "" to disable local judge (use API judge for all steps — slower).
-    local_judge_model: str = os.environ.get("LOCAL_JUDGE_MODEL", "unsloth/Qwen3-1.5B-Instruct")
+    local_judge_model: str = os.environ.get("LOCAL_JUDGE_MODEL", "unsloth/Qwen2.5-1.5B-Instruct-unsloth-bnb-4bit")
 
     # ── Generation ────────────────────────────────────────────────────────────
     max_new_tokens: int = 128

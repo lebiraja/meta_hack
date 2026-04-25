@@ -451,27 +451,28 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
 
         # Compute preliminary L1 reward
         is_terminal_intent = action.action_type in (ActionType.CLOSE, ActionType.ESCALATE)
-        reward = compute_hierarchy_reward(
-            action=action, ticket=self._ticket, history=self._history,
-            steps_used=self._step, max_steps=self._max_steps,
-            is_terminal=False,
-            policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
-            hierarchy_state=self._hierarchy.model_dump(),
-            use_llm_judge=_USE_LLM_JUDGE,
-            retrieved_data=self._retrieved_data,
-        )
-        self._update_sentiment(action, reward.tone_score)
-
-        self._action_log.append({
-            "step": self._step, "role": "support_agent",
-            "action_type": action.action_type,
-            "message": action.message, "reason": action.reason,
-            "reward": reward.value,
-        })
 
         # ── Curriculum: Skip supervisor if L2 not in active_levels ─────────
         if 2 not in self._active_levels:
             # L1-only mode (curriculum_basic): auto-approve, deliver to customer
+            # Compute reward with correct is_terminal flag BEFORE marking done
+            is_terminal_now = is_terminal_intent or self._step >= self._max_steps
+            reward = compute_hierarchy_reward(
+                action=action, ticket=self._ticket, history=self._history,
+                steps_used=self._step, max_steps=self._max_steps,
+                is_terminal=is_terminal_now,
+                policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
+                hierarchy_state=self._hierarchy.model_dump(),
+                use_llm_judge=_USE_LLM_JUDGE,
+                retrieved_data=self._retrieved_data,
+            )
+            self._update_sentiment(action, reward.tone_score)
+            self._action_log.append({
+                "step": self._step, "role": "support_agent",
+                "action_type": action.action_type,
+                "message": action.message, "reason": action.reason,
+                "reward": reward.value,
+            })
             if is_terminal_intent:
                 self._done = True
             elif not self._done:
@@ -485,6 +486,24 @@ class HierarchicalCustomerSupportEnv(CustomerSupportEnv):
             obs = self._build_observation()
             info = {"ticket_id": self._ticket["id"], "action_log": self._action_log, "error": None}
             return obs, reward, self._done, info
+
+        # Normal hierarchy: non-terminal L1 reward (supervisor will judge terminal)
+        reward = compute_hierarchy_reward(
+            action=action, ticket=self._ticket, history=self._history,
+            steps_used=self._step, max_steps=self._max_steps,
+            is_terminal=False,
+            policy_text=self._policy_engine.get_active_policy_text() if self._policy_engine else "",
+            hierarchy_state=self._hierarchy.model_dump(),
+            use_llm_judge=_USE_LLM_JUDGE,
+            retrieved_data=self._retrieved_data,
+        )
+        self._update_sentiment(action, reward.tone_score)
+        self._action_log.append({
+            "step": self._step, "role": "support_agent",
+            "action_type": action.action_type,
+            "message": action.message, "reason": action.reason,
+            "reward": reward.value,
+        })
 
         # Normal hierarchy: switch to supervisor for review
         self._active_role = AgentRole.SUPERVISOR

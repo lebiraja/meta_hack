@@ -163,6 +163,10 @@ cells.append(code(textwrap.dedent("""\
     for p in ref_model.parameters(): p.requires_grad_(False)
     ref_model.eval()
 
+    # Clear max_length from generation config to silence the warning
+    if hasattr(model, "generation_config"):
+        model.generation_config.max_length = None
+
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total     = sum(p.numel() for p in model.parameters())
     print(f"✅ Model ready — trainable: {trainable:,} / {total:,} ({100*trainable/total:.1f}%)")
@@ -200,10 +204,10 @@ ACTION TYPES — output exactly one per step:
 SCORING: Empathy(30%) + Accuracy(25%) + Resolution(25%) + Efficiency(20%)
 
 OUTPUT FORMAT — return ONLY valid JSON:
-{"action_type": "respond", "message": "..."}
-{"action_type": "escalate", "reason": "..."}
-{"action_type": "query_user_profile", "email": "customer@example.com"}
-{"action_type": "query_order_details", "order_id": "ORD-12345"}
+{{"action_type": "respond", "message": "..."}}
+{{"action_type": "escalate", "reason": "..."}}
+{{"action_type": "query_user_profile", "email": "customer@example.com"}}
+{{"action_type": "query_order_details", "order_id": "ORD-12345"}}
 WARNING: Use "email" for query_user_profile, "order_id" for query_order_details. NEVER "message"."""
 
 SUPERVISOR_PROMPT = """You are a SUPERVISOR (Level 2) reviewing the Support Agent's last action.
@@ -212,18 +216,18 @@ ACTION: Type={pending_action_type}  Content={pending_action_content}
 POLICY: {policy}
 
 OUTPUT one of:
-{"action_type": "supervisor_approve", "message": "Approved."}
-{"action_type": "supervisor_feedback", "feedback_to_agent": "..."}
-{"action_type": "supervisor_reject",   "feedback_to_agent": "..."}
-{"action_type": "supervisor_escalate", "reason": "..."}"""
+{{"action_type": "supervisor_approve", "message": "Approved."}}
+{{"action_type": "supervisor_feedback", "feedback_to_agent": "..."}}
+{{"action_type": "supervisor_reject",   "feedback_to_agent": "..."}}
+{{"action_type": "supervisor_escalate", "reason": "..."}}"""
 
 MANAGER_PROMPT = """You are a MANAGER (Level 3). Handle escalated cases.
 REASON: {escalation_reason}  POLICY: {policy}
 
 OUTPUT one of:
-{"action_type": "manager_resolve",   "message": "..."}
-{"action_type": "manager_override",  "message": "..."}
-{"action_type": "manager_send_back", "feedback_to_agent": "..."}"""
+{{"action_type": "manager_resolve",   "message": "..."}}
+{{"action_type": "manager_override",  "message": "..."}}
+{{"action_type": "manager_send_back", "feedback_to_agent": "..."}}"""
 
 
 # ── Action parser (v5) ────────────────────────────────────────────────────────
@@ -299,6 +303,13 @@ def parse_action(text, active_role="support_agent"):
     except json.JSONDecodeError: return fb, True
     if not isinstance(action, dict): return fb, True
     at = action.get("action_type","")
+    _NORMALIZE = {
+        "response":"respond","request_information":"request_info",
+        "request":"request_info","query_user":"query_user_profile",
+        "query_order":"query_order_details","close_ticket":"close",
+    }
+    at = _NORMALIZE.get(at, at)
+    action["action_type"] = at
     if not at or at not in _ROLE_ACTIONS.get(active_role, _ROLE_ACTIONS["support_agent"]): return fb, True
     req = _REQUIRED_FIELDS.get(at)
     if req and not (action.get(req) or "").strip(): return fb, True

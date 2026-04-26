@@ -1,42 +1,41 @@
 """
-serve_inference.py — Local model inference server for the frontend Auto-Play.
+serve_inference.py — GGUF inference server for the frontend Auto-Play and /chat endpoint.
 
-Runs on port 8001. The frontend's /api/ai-action calls this instead of NIM.
+Downloads lebiraja/customer-support-grpo-v5-gguf (model-q4_k_m.gguf, ~4.9 GB) on first start,
+then serves it on port 8001 via llama-cpp-python (CPU, no GPU required).
 
 Usage:
-    .venv/bin/python serve_inference.py
+    python serve_inference.py
 
 Environment:
-    INFERENCE_MODEL  — model to load (default: TRAIN_MODEL from .env or Qwen2.5-1.5B)
-    INFERENCE_PORT   — port to listen on (default: 8001)
+    GGUF_REPO         — HF repo id  (default: lebiraja/customer-support-grpo-v5-gguf)
+    GGUF_FILE         — filename     (default: model-q4_k_m.gguf)
+    INFERENCE_PORT    — port         (default: 8001)
+    N_CTX             — context len  (default: 4096)
+    N_THREADS         — CPU threads  (default: all cores)
+    HF_TOKEN          — optional token for private repos
 """
 
-import os, re, sys
+import os
+import re
+import sys
 from dotenv import load_dotenv
+
 load_dotenv()
+
+GGUF_REPO = os.getenv("GGUF_REPO", "lebiraja/customer-support-grpo-v5-gguf")
+GGUF_FILE = os.getenv("GGUF_FILE", "model-q4_k_m.gguf")
+PORT      = int(os.getenv("INFERENCE_PORT", "8001"))
+N_CTX     = int(os.getenv("N_CTX",     "4096"))
+N_THREADS = int(os.getenv("N_THREADS", str(os.cpu_count() or 4)))
+HF_TOKEN  = os.getenv("HF_TOKEN")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
-# Priority: INFERENCE_MODEL env var → merged_model/ dir → TRAIN_MODEL → default
-def _resolve_model() -> str:
-    if os.getenv("INFERENCE_MODEL"):
-        return os.getenv("INFERENCE_MODEL")
-    # Auto-detect merged model from training output
-    for candidate in ["merged_model", "checkpoints/final"]:
-        if os.path.isdir(candidate) and any(
-            f.endswith(".safetensors") for f in os.listdir(candidate)
-        ):
-            print(f"[SERVE] Auto-detected trained model at {candidate}/")
-            return candidate
-    return os.getenv("TRAIN_MODEL") or "unsloth/Qwen2.5-1.5B-Instruct"
-
-INFERENCE_MODEL = _resolve_model()
-PORT = int(os.getenv("INFERENCE_PORT", "8001"))
-
-app = FastAPI(title="Local Inference Server")
+app = FastAPI(title="GGUF Inference — customer-support-grpo-v5")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,51 +43,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Model (loaded once on startup) ────────────────────────────────────────────
+# ── Model (loaded once at startup) ────────────────────────────────────────────
 
-_model = None
-_tokenizer = None
+_llm = None
 
 
 def _load():
-    global _model, _tokenizer
-    print(f"[SERVE] Loading {INFERENCE_MODEL}…")
-    from unsloth import FastLanguageModel
-    _model, _tokenizer = FastLanguageModel.from_pretrained(
-        model_name=INFERENCE_MODEL,
-        max_seq_length=4096,
-        dtype=None,
-        load_in_4bit=True,
+    global _llm
+    from huggingface_hub import hf_hub_download
+    from llama_cpp import Llama
+
+    print(f"[SERVE] Downloading {GGUF_REPO}/{GGUF_FILE} …", flush=True)
+    model_path = hf_hub_download(
+        repo_id=GGUF_REPO,
+        filename=GGUF_FILE,
+        token=HF_TOKEN or None,
     )
-    FastLanguageModel.for_inference(_model)
-    if _tokenizer.pad_token is None:
-        _tokenizer.pad_token = _tokenizer.eos_token
-    print(f"[SERVE] Model ready on GPU")
+    print(f"[SERVE] Loading GGUF from {model_path} …", flush=True)
+    _llm = Llama(
+        model_path=model_path,
+        n_ctx=N_CTX,
+        n_threads=N_THREADS,
+        chat_format="llama-3",
+        verbose=False,
+    )
+    print(f"[SERVE] ✓ Model ready — {GGUF_REPO} ({GGUF_FILE})", flush=True)
 
 
 def _generate(messages: list) -> str:
-    import torch
-    try:
-        prompt = _tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
-        )
-    except TypeError:
-        prompt = _tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-        )
-
-    inputs = _tokenizer(prompt, return_tensors="pt").to("cuda")
-    with torch.no_grad():
-        out = _model.generate(
-            **inputs,
-            max_new_tokens=256,
-            temperature=0.6,
-            top_p=0.95,
-            do_sample=True,
-            pad_token_id=_tokenizer.pad_token_id,
-            eos_token_id=_tokenizer.eos_token_id,
-        )
-    text = _tokenizer.decode(out[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+    resp = _llm.create_chat_completion(
+        messages=messages,
+        max_tokens=256,
+        temperature=0.6,
+        top_p=0.95,
+        stop=["<|eot_id|>", "<|end_of_text|>"],
+    )
+    text = resp["choices"][0]["message"]["content"] or ""
     return re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
 
 
@@ -101,7 +91,7 @@ class AgentRequest(BaseModel):
 
 @app.post("/agent-action")
 def agent_action(req: AgentRequest):
-    """Called by the frontend Auto-Play instead of NIM API."""
+    """Called by frontend Auto-Play and by the /chat endpoint."""
     from inference import build_messages, build_hierarchy_messages, parse_action, _FALLBACKS
 
     obs  = req.observation
@@ -112,20 +102,26 @@ def agent_action(req: AgentRequest):
     else:
         messages = build_messages(obs)
 
+    raw = ""
     try:
         raw    = _generate(messages)
         action = parse_action(raw)
-        return {"action": action}
+        return {"action": action, "model": GGUF_REPO}
     except Exception as exc:
-        print(f"[SERVE] Error: {exc} | raw={raw!r:.120}" if 'raw' in dir() else f"[SERVE] Error: {exc}")
+        preview = raw[:120] if raw else "(no output)"
+        print(f"[SERVE] Error: {exc} | raw={preview!r}", flush=True)
         return {"action": _FALLBACKS.get(role, _FALLBACKS["support_agent"]), "fallback": True}
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model": INFERENCE_MODEL, "ready": _model is not None}
+    return {
+        "status": "ok",
+        "model": f"{GGUF_REPO}/{GGUF_FILE}",
+        "ready": _llm is not None,
+    }
 
 
 if __name__ == "__main__":
     _load()
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")

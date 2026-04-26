@@ -12,6 +12,9 @@ uvicorn server.app:app --host 127.0.0.1 --port 8080 --timeout-keep-alive 30 &
 echo "[START] Next.js on :3000..."
 PORT=3000 HOSTNAME=127.0.0.1 node /app/frontend/.next/standalone/server.js &
 
+echo "[START] GGUF inference server on :8001 (downloads model on first run)..."
+python /app/serve_inference.py &
+
 echo "[START] Waiting for services..."
 sleep 4
 

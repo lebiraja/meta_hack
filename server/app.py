@@ -124,7 +124,7 @@ async def _json_rate_limit_handler(request: Request, exc: RateLimitExceeded) -> 
 MAX_SESSIONS = 500          # hard cap on concurrent sessions
 SESSION_TTL_SECONDS = 300   # 5 minutes
 MAX_BODY_BYTES = 64 * 1024  # 64KB per request
-AGENT_MODEL_URL = os.environ.get("AGENT_MODEL_URL", "http://host.docker.internal:8001")
+AGENT_MODEL_URL = os.environ.get("AGENT_MODEL_URL", "http://localhost:8001")
 MAX_HIERARCHY_ITERATIONS = 8
 
 # Normalize common model typos/variants to valid ActionType values

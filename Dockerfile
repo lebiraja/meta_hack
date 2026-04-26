@@ -2,9 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system deps: curl (healthcheck) + nginx + Node.js 22
+# Install system deps: curl + nginx + Node.js 22 + C++ build tools (for llama-cpp-python)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl nginx gnupg ca-certificates && \
+        curl nginx gnupg ca-certificates build-essential cmake && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
@@ -22,6 +22,12 @@ RUN npm ci
 ENV NEXT_PUBLIC_API_URL=""
 ENV NEXT_PUBLIC_API_KEY=meta_hack_2026
 ENV NEXT_TELEMETRY_DISABLED=1
+# Point frontend and /chat endpoint at the in-process GGUF inference server
+ENV LOCAL_INFERENCE_URL=http://localhost:8001
+ENV AGENT_MODEL_URL=http://localhost:8001
+# Trained GGUF model
+ENV GGUF_REPO=lebiraja/customer-support-grpo-v5-gguf
+ENV GGUF_FILE=model-q4_k_m.gguf
 
 RUN npm run build
 

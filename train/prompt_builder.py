@@ -33,9 +33,16 @@ ACTION TYPES — output exactly one per step:
 - "query_user_profile"    → look up customer account data (internal)→ requires: "email"
 - "query_order_details"   → look up order data (internal)          → requires: "order_id"
 
-OUTPUT FORMAT — return ONLY this JSON, no code fences, no preamble:
-{"action_type": "...", "message": "..."}   ← for respond / request_info / close
-{"action_type": "escalate", "reason": "..."} ← for escalate
+OUTPUT FORMAT — return ONLY valid JSON, no code fences, no preamble:
+{"action_type": "respond", "message": "Your message here"}
+{"action_type": "request_info", "message": "What info do you need?"}
+{"action_type": "close", "message": "Resolved: your issue has been fixed."}
+{"action_type": "escalate", "reason": "Critical SLA breach — needs specialist"}
+{"action_type": "query_user_profile", "email": "customer@example.com"}
+{"action_type": "query_order_details", "order_id": "ORD-12345"}
+
+⚠️ FIELD NAMES ARE EXACT: "message" for respond/request_info/close, "reason" for escalate,
+"email" for query_user_profile, "order_id" for query_order_details. Wrong field = parse error.
 
 DECISION RULES:
 1. BILLING tickets (low/medium priority): Acknowledge → gather info → resolve → close.
@@ -69,8 +76,12 @@ SCORING: Empathy(30%) + Accuracy(25%) + Resolution(25%) + Efficiency(20%)
 Be warm, gather info from "Unresolved issues", use specific resolution language.
 If supervisor gave feedback, INCORPORATE it into your next action.
 
-OUTPUT FORMAT — return ONLY this JSON:
-{{"action_type": "...", "message": "..."}} or {{"action_type": "escalate", "reason": "..."}}"""
+OUTPUT FORMAT — return ONLY valid JSON matching the field for your action_type:
+{{"action_type": "respond", "message": "..."}}         ← respond / request_info / close
+{{"action_type": "escalate", "reason": "..."}}         ← escalate
+{{"action_type": "query_user_profile", "email": "customer@example.com"}}
+{{"action_type": "query_order_details", "order_id": "ORD-12345"}}
+⚠️ Use "email" for query_user_profile. Use "order_id" for query_order_details. NEVER use "message" for these."""
 
 SUPERVISOR_PROMPT = """You are a SUPERVISOR (Level 2) in a hierarchical customer support system.
 

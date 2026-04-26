@@ -22,8 +22,8 @@ from huggingface_hub import run_job, fetch_job_logs, inspect_job
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-HF_REPO          = os.getenv("HF_REPO",      "lebiraja/customer-support-grpo-v2")
-HF_REPO_GGUF     = os.getenv("HF_REPO_GGUF", "lebiraja/customer-support-grpo-v2-gguf")
+HF_REPO          = os.getenv("HF_REPO",      "lebiraja/customer-support-grpo-v5")
+HF_REPO_GGUF     = os.getenv("HF_REPO_GGUF", "lebiraja/customer-support-grpo-v5-gguf")
 HF_TOKEN         = os.getenv("HF_TOKEN",     "")   # YOUR token — clone Space + push model
 SUBMIT_TOKEN     = os.getenv("SUBMIT_TOKEN", HF_TOKEN)  # FRIEND's token — billing only
 SKIP_SFT         = os.getenv("SKIP_SFT",     "1")
@@ -127,8 +127,8 @@ def main():
     print(f"  Timeout    : {TIMEOUT}")
     print(f"  Model      : {TRAIN_MODEL}")
     print(f"  Steps      : {TOTAL_STEPS}  (~6hr, ~$11 total)")
-    print(f"  Push (16b) : {HF_REPO}")
-    print(f"  Push (GGUF): {HF_REPO_GGUF}")
+    print(f"  Model (16b): {HF_REPO}")
+    print(f"  Model (GGUF): {HF_REPO_GGUF}")
     print(f"  Billing    : {billing_account}")
     print(f"  Skip SFT   : {SKIP_SFT}")
     print(f"  GGUF export: {GGUF_EXPORT}")
@@ -167,10 +167,11 @@ def main():
     print(f"  ✓ Job submitted! Billing → {billing_account}")
     print(f"  Job ID  : {job.id}")
     print(f"  Job URL : {job.url}")
-    print(f"\n  Stream logs (use SUBMIT_TOKEN if billing to friend):")
+    print(f"\n  Models will appear at:")
+    print(f"    https://huggingface.co/{HF_REPO}")
+    print(f"    https://huggingface.co/{HF_REPO_GGUF}")
+    print(f"\n  Stream logs:")
     print(f"    SUBMIT_TOKEN=hf_friends_token .venv/bin/python submit_training_job.py --logs")
-    print(f"\n  Or watch on the web:")
-    print(f"    {job.url}")
     print(f"{'═'*60}\n")
 
 

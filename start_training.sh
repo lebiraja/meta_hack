@@ -21,8 +21,8 @@ set -euo pipefail
 # ── Config — edit these ───────────────────────────────────────────────────────
 POLICY_MODEL="${TRAIN_MODEL:-unsloth/Qwen3-8B}"
 JUDGE_MODEL="${LOCAL_JUDGE_MODEL:-unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit}"
-HF_REPO="${HF_REPO:-lebiraja/customer-support-grpo-v2}"
-HF_REPO_GGUF="${HF_REPO_GGUF:-lebiraja/customer-support-grpo-v2-gguf}"
+HF_REPO="${HF_REPO:-lebiraja/customer-support-grpo-v5}"
+HF_REPO_GGUF="${HF_REPO_GGUF:-lebiraja/customer-support-grpo-v5-gguf}"
 HF_TOKEN="${HF_TOKEN:-}"
 ENV_URL="${ENV_URL:-http://localhost:7860}"
 JUDGE_PORT="${JUDGE_PORT:-8002}"

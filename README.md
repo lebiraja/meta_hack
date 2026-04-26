@@ -448,24 +448,26 @@ The `/chat` endpoint internally orchestrates the full hierarchy loop (L1 → L2 
 
 ---
 
-## 📈 Training Curves (Real Run — Qwen2.5-1.5B, 30 steps, Colab T4)
+## 📈 Training Curves (Real Run — Qwen2.5-1.5B, 40 steps, Colab T4)
+
+Completed run: **baseline 0.136 → trained 0.147 → best eval 0.152** (+8%). Mean invalid rate: 0.6%. Zero fallbacks before step 10.
 
 | Reward | Loss |
 |--------|------|
 | ![Reward](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_reward.png) | ![Loss](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_loss.png) |
-| *Mean group reward per step (raw + smoothed). Baseline 0.14 → Trained 0.15* | *GRPO loss across 30 training steps* |
+| *Mean group reward per step (raw + smoothed). Baseline 0.136 → Best eval 0.152* | *GRPO loss across 40 training steps — stable, no divergence* |
 
 | Learning Rate | Invalid Rate |
 |---------------|--------------|
 | ![LR](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_lr.png) | ![Invalid](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_invalid_rate.png) |
-| *Cosine annealing: 5e-5 → 5e-6* | *Fraction of unparseable episodes — near zero throughout, well below 90% collapse threshold* |
+| *Cosine annealing: 5e-5 → 5e-6* | *Mean invalid 0.6% — well below 90% collapse threshold throughout* |
 
 | Eval Score History | Before vs After |
 |--------------------|-----------------|
 | ![Eval](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_eval_scores.png) | ![Before/After](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_before_after.png) |
-| *Model score at each eval checkpoint. Best: 0.152 vs Baseline: 0.14* | *Episode-level score improvement after 30 steps of GRPO on Colab T4* |
+| *Best checkpoint 0.152 at step 20 vs baseline 0.136* | *Episode-level score improvement after 40 steps of GRPO on Colab T4* |
 
-> Full training on L40S (150 steps, curriculum basic → supervisor → full hierarchy) shows reward reaching **0.709** with `final=1.000` episodes on `curriculum_supervisor`. See HF job logs for full evidence.
+> Full training on L40S (150 steps, curriculum basic → supervisor → full hierarchy) shows reward reaching **0.709** with `final=1.000` episodes on `curriculum_supervisor`. HF job still in progress.
 
 ---
 

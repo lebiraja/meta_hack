@@ -193,7 +193,9 @@ The most counter-intuitive learned behaviour was proper escalation. Language mod
 
 ## Training Curves
 
-We ran GRPO training on Qwen2.5-1.5B (Colab T4, 30 steps) and Llama-3.1-8B (L40S, 150 steps with curriculum progression). Here are the real plots from the Colab run:
+We ran GRPO training on Qwen2.5-1.5B (Colab T4, 40 steps) and Llama-3.1-8B (L40S, 150 steps with curriculum progression). Here are the real plots from the Colab run:
+
+**Colab summary (Qwen2.5-1.5B, `curriculum_basic`, 40 steps):** baseline 0.136 → trained 0.147 → best eval 0.152 (+8%). Mean invalid rate 0.6%. Final loss −0.052, final reward 0.240. Zero invalids after step 5.
 
 **Reward** — climbs above the baseline throughout training, smoothed trend shows consistent improvement:
 
@@ -211,7 +213,7 @@ We ran GRPO training on Qwen2.5-1.5B (Colab T4, 30 steps) and Llama-3.1-8B (L40S
 
 ![Invalid rate](results/plot_invalid_rate.png)
 
-**Eval Score History** — best checkpoint 0.152 vs baseline 0.14:
+**Eval Score History** — best checkpoint 0.152 vs baseline 0.136:
 
 ![Eval scores](results/plot_eval_scores.png)
 

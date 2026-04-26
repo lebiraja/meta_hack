@@ -145,7 +145,7 @@ if [ "$SKIP_GRPO" = "0" ]; then
     JUDGE_MODEL="$JUDGE_MODEL_NAME" \
     JUDGE_MODE="full" \
     python -m train.run_train \
-        --total_steps "${TOTAL_STEPS:-3500}" \
+        --total_steps "${TOTAL_STEPS:-300}" \
         --ckpt_dir "$CKPT_DIR" \
         2>&1 | tee "$LOG_DIR/train.log"
 

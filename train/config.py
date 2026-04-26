@@ -43,7 +43,7 @@ class TrainConfig:
     step_weight: float = 0.50      # was 0.30 — boosted since most terminal scores are N/A
     terminal_weight: float = 0.50  # was 0.70 — reduced to not penalise missing terminal scores
     gamma: float = 0.95            # discount factor
-    invalid_penalty: float = -0.5  # reward for unparseable / wrong-role actions
+    invalid_penalty: float = -0.2  # reward for unparseable / wrong-role actions — softer for stable advantages
 
     # ── Training schedule ─────────────────────────────────────────────────────
     learning_rate: float = 5e-5
@@ -65,7 +65,7 @@ class TrainConfig:
     local_judge_model: str = os.environ.get("LOCAL_JUDGE_MODEL", "unsloth/Qwen2.5-1.5B-Instruct-unsloth-bnb-4bit")
 
     # ── Generation ────────────────────────────────────────────────────────────
-    max_new_tokens: int = 96
+    max_new_tokens: int = 128
     temperature: float = 0.8
     top_p: float = 0.95
     do_sample: bool = True

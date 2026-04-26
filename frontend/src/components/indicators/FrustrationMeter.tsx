@@ -2,15 +2,16 @@
 
 import { cn } from "@/lib/utils";
 
-interface Props { sentiment: string; trajectory: string[]; }
+interface Props { sentiment: string | number; trajectory: (string | number)[]; }
 
-function sentimentToFrustration(s: string): number {
+function sentimentToFrustration(s: string | number): number {
+  if (typeof s === "number") return Math.max(0, Math.min(1, s));
   const map: Record<string, number> = { frustrated: 0.85, angry: 1.0, annoyed: 0.7, confused: 0.5, neutral: 0.3, satisfied: 0.1, happy: 0.0 };
   return map[s.toLowerCase()] ?? 0.4;
 }
 
 export function FrustrationMeter({ sentiment, trajectory }: Props) {
-  const frust = sentimentToFrustration(sentiment);
+  const frust = sentimentToFrustration(sentiment as string | number);
   const color = frust >= 0.7 ? "bg-red-500" : frust >= 0.4 ? "bg-amber-500" : "bg-emerald-500";
   const label = frust >= 0.7 ? "Frustrated" : frust >= 0.4 ? "Moderate" : "Calm";
 

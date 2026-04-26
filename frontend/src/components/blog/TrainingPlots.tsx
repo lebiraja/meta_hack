@@ -1,36 +1,37 @@
 "use client";
 import { motion } from "framer-motion";
-import Image from "next/image";
 import { staggerContainer, fadeUp, viewportOnce } from "@/lib/motion";
+
+const GH_RAW = "https://raw.githubusercontent.com/lebiraja/meta_hack/main/results";
 
 const PLOTS = [
   {
-    src: "/plot_reward.png",
+    src: `${GH_RAW}/plot_reward.png`,
     title: "Reward",
     desc: "Baseline 0.136 → best eval 0.152. Final reward 0.240 at step 40.",
   },
   {
-    src: "/plot_loss.png",
+    src: `${GH_RAW}/plot_loss.png`,
     title: "Loss",
     desc: "Stays stable throughout. No divergence or collapse.",
   },
   {
-    src: "/plot_lr.png",
+    src: `${GH_RAW}/plot_lr.png`,
     title: "Learning Rate",
     desc: "Cosine annealing: 5e-5 → 5e-6 over 40 steps.",
   },
   {
-    src: "/plot_invalid_rate.png",
+    src: `${GH_RAW}/plot_invalid_rate.png`,
     title: "Invalid Rate",
     desc: "Mean 0.6% — well below 90% collapse threshold.",
   },
   {
-    src: "/plot_eval_scores.png",
+    src: `${GH_RAW}/plot_eval_scores.png`,
     title: "Eval Scores",
     desc: "Best checkpoint 0.152 at step 20 vs baseline 0.136.",
   },
   {
-    src: "/plot_before_after.png",
+    src: `${GH_RAW}/plot_before_after.png`,
     title: "Before vs After",
     desc: "Trained (green) beats baseline (red) every eval episode.",
   },
@@ -62,7 +63,8 @@ export function TrainingPlots() {
             <motion.div key={title} variants={fadeUp}
               className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5">
               <div className="border-b border-slate-100 bg-slate-50 p-2">
-                <Image src={src} alt={title} width={560} height={360} className="w-full rounded-lg object-contain" style={{ maxHeight: 180 }} />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt={title} className="w-full rounded-lg object-contain" style={{ maxHeight: 180 }} />
               </div>
               <div className="px-4 py-3">
                 <div className="text-sm font-bold text-slate-900">{title}</div>

@@ -9,4 +9,4 @@ build/
 .venv/
 venv/
 .playwright-mcp/
-results/
+frontend/public/*.png

@@ -452,17 +452,17 @@ The `/chat` endpoint internally orchestrates the full hierarchy loop (L1 → L2 
 
 | Reward | Loss |
 |--------|------|
-| ![Reward](https://raw.githubusercontent.com/lebiraja/meta_hack/feat/fixonblog/results/plot_reward.png) | ![Loss](https://raw.githubusercontent.com/lebiraja/meta_hack/feat/fixonblog/results/plot_loss.png) |
+| ![Reward](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_reward.png) | ![Loss](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_loss.png) |
 | *Mean group reward per step (raw + smoothed). Baseline 0.14 → Trained 0.15* | *GRPO loss across 30 training steps* |
 
 | Learning Rate | Invalid Rate |
 |---------------|--------------|
-| ![LR](https://raw.githubusercontent.com/lebiraja/meta_hack/feat/fixonblog/results/plot_lr.png) | ![Invalid](https://raw.githubusercontent.com/lebiraja/meta_hack/feat/fixonblog/results/plot_invalid_rate.png) |
+| ![LR](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_lr.png) | ![Invalid](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_invalid_rate.png) |
 | *Cosine annealing: 5e-5 → 5e-6* | *Fraction of unparseable episodes — near zero throughout, well below 90% collapse threshold* |
 
 | Eval Score History | Before vs After |
 |--------------------|-----------------|
-| ![Eval](https://raw.githubusercontent.com/lebiraja/meta_hack/feat/fixonblog/results/plot_eval_scores.png) | ![Before/After](https://raw.githubusercontent.com/lebiraja/meta_hack/feat/fixonblog/results/plot_before_after.png) |
+| ![Eval](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_eval_scores.png) | ![Before/After](https://raw.githubusercontent.com/lebiraja/meta_hack/main/results/plot_before_after.png) |
 | *Model score at each eval checkpoint. Best: 0.152 vs Baseline: 0.14* | *Episode-level score improvement after 30 steps of GRPO on Colab T4* |
 
 > Full training on L40S (150 steps, curriculum basic → supervisor → full hierarchy) shows reward reaching **0.709** with `final=1.000` episodes on `curriculum_supervisor`. See HF job logs for full evidence.

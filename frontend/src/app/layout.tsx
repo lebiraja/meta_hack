@@ -27,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full scroll-smooth">
       <body
-        className={`h-full bg-slate-950 text-slate-100 antialiased ${geistSans.variable} ${geistMono.variable} ${fraunces.variable}`}
+        className={`h-full bg-white text-slate-900 antialiased ${geistSans.variable} ${geistMono.variable} ${fraunces.variable}`}
         style={{ fontFamily: "var(--font-geist-sans), system-ui, sans-serif" }}
       >
         {children}

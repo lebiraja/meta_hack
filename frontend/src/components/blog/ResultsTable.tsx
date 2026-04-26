@@ -16,18 +16,18 @@ const RESULTS = [
 function DeltaBadge({ delta }: { delta: number }) {
   if (delta > 0)
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-bold text-emerald-400">
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-bold text-emerald-700">
         <TrendingUp className="h-3 w-3" />+{delta}pp
       </span>
     );
   if (delta < 0)
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-xs font-bold text-rose-400">
+      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-xs font-bold text-rose-700">
         <TrendingDown className="h-3 w-3" />{delta}pp
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/15 px-2 py-0.5 text-xs text-slate-400">
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-500">
       <Minus className="h-3 w-3" />—
     </span>
   );
@@ -36,7 +36,7 @@ function DeltaBadge({ delta }: { delta: number }) {
 function ScoreBar({ value, max = 100, color }: { value: number; max?: number; color: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
         <motion.div
           initial={{ width: 0 }}
           whileInView={{ width: `${(value / max) * 100}%` }}
@@ -45,16 +45,16 @@ function ScoreBar({ value, max = 100, color }: { value: number; max?: number; co
           className={`h-full rounded-full ${color}`}
         />
       </div>
-      <span className="w-8 text-right text-xs font-semibold tabular-nums text-slate-300">{value}</span>
+      <span className="w-8 text-right text-xs font-semibold tabular-nums text-slate-700">{value}</span>
     </div>
   );
 }
 
 export function ResultsTable() {
   return (
-    <section id="results" className="relative overflow-hidden bg-slate-950 py-24 md:py-36">
+    <section id="results" className="relative overflow-hidden bg-white py-24 md:py-36">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute right-0 top-1/3 h-[500px] w-[500px] rounded-full bg-emerald-900/10 blur-[120px]" />
+        <div className="absolute right-0 top-1/3 h-[500px] w-[500px] rounded-full bg-emerald-100/40 blur-[120px]" />
       </div>
 
       <div className="relative mx-auto max-w-7xl px-6">
@@ -65,18 +65,18 @@ export function ResultsTable() {
           viewport={viewportOnce}
           className="mb-16 text-center"
         >
-          <motion.span variants={fadeUp} className="mb-3 inline-block text-xs font-semibold uppercase tracking-widest text-emerald-400">
+          <motion.span variants={fadeUp} className="mb-3 inline-block text-xs font-semibold uppercase tracking-widest text-emerald-600">
             Results
           </motion.span>
           <motion.h2
             variants={fadeUp}
-            className="text-4xl font-bold text-white md:text-5xl"
+            className="text-4xl font-bold text-slate-900 md:text-5xl"
             style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}
           >
             +15–19pp over{" "}
             <span className="gradient-text italic">every baseline</span>
           </motion.h2>
-          <motion.p variants={fadeUp} className="mx-auto mt-4 max-w-xl text-slate-400">
+          <motion.p variants={fadeUp} className="mx-auto mt-4 max-w-xl text-slate-500">
             Evaluated on our multi-domain benchmark. Scores represent LLM-judge resolution quality (0–100).
           </motion.p>
         </motion.div>
@@ -86,10 +86,10 @@ export function ResultsTable() {
           initial="hidden"
           whileInView="visible"
           viewport={viewportOnce}
-          className="overflow-hidden rounded-2xl border border-white/8"
+          className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm"
         >
           {/* Header */}
-          <div className="grid grid-cols-[1fr_180px_180px_120px] gap-4 border-b border-white/8 bg-white/5 px-6 py-4 text-xs font-semibold uppercase tracking-widest text-slate-400">
+          <div className="grid grid-cols-[1fr_160px_160px_100px] gap-4 border-b border-slate-200 bg-slate-50 px-6 py-4 text-xs font-semibold uppercase tracking-widest text-slate-500">
             <span>Task Category</span>
             <span>GPT-4 Baseline</span>
             <span>AgentOS (Ours)</span>
@@ -100,22 +100,22 @@ export function ResultsTable() {
             <motion.div
               key={task}
               variants={fadeUp}
-              className={`grid grid-cols-[1fr_180px_180px_120px] items-center gap-4 px-6 py-4 transition-colors hover:bg-white/[0.03] ${
-                i < RESULTS.length - 1 ? "border-b border-white/5" : ""
+              className={`grid grid-cols-[1fr_160px_160px_100px] items-center gap-4 px-6 py-4 transition-colors hover:bg-slate-50 ${
+                i < RESULTS.length - 1 ? "border-b border-slate-100" : ""
               }`}
             >
-              <span className="text-sm font-medium text-slate-200">{task}</span>
-              <ScoreBar value={baseline} color="bg-slate-500" />
+              <span className="text-sm font-medium text-slate-800">{task}</span>
+              <ScoreBar value={baseline} color="bg-slate-300" />
               <ScoreBar value={ours} color="bg-gradient-to-r from-indigo-500 to-violet-500" />
               <DeltaBadge delta={delta} />
             </motion.div>
           ))}
 
           {/* Footer avg */}
-          <div className="grid grid-cols-[1fr_180px_180px_120px] items-center gap-4 border-t border-white/10 bg-white/5 px-6 py-4">
-            <span className="text-sm font-bold text-slate-100">Average</span>
-            <ScoreBar value={59} color="bg-slate-500" />
-            <ScoreBar value={76} color="bg-gradient-to-r from-indigo-400 to-emerald-400" />
+          <div className="grid grid-cols-[1fr_160px_160px_100px] items-center gap-4 border-t border-slate-200 bg-slate-50 px-6 py-4">
+            <span className="text-sm font-bold text-slate-900">Average</span>
+            <ScoreBar value={59} color="bg-slate-300" />
+            <ScoreBar value={76} color="bg-gradient-to-r from-indigo-500 to-emerald-500" />
             <DeltaBadge delta={17} />
           </div>
         </motion.div>

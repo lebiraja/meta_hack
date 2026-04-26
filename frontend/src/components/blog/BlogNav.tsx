@@ -45,19 +45,19 @@ export function BlogNav() {
       className={cn(
         "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
         scrolled
-          ? "bg-slate-950/80 backdrop-blur-xl border-b border-white/8 shadow-xl shadow-black/20"
+          ? "bg-white/90 backdrop-blur-xl border-b border-slate-200 shadow-sm"
           : "bg-transparent"
       )}
     >
       {/* Progress bar */}
       <motion.div
-        className="absolute bottom-0 left-0 right-0 h-[2px] origin-left bg-gradient-to-r from-indigo-500 via-violet-500 to-cyan-400"
+        className="absolute bottom-0 left-0 right-0 h-[2px] origin-left bg-gradient-to-r from-indigo-500 via-violet-500 to-cyan-500"
         style={{ scaleX }}
       />
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         <Link
           href="/blog"
-          className="text-sm font-semibold tracking-tight text-white hover:text-indigo-300 transition-colors"
+          className="text-sm font-semibold tracking-tight text-slate-900 hover:text-indigo-600 transition-colors"
         >
           AgentOS
         </Link>
@@ -70,8 +70,8 @@ export function BlogNav() {
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-200",
                 active === id
-                  ? "bg-indigo-500/20 text-indigo-300"
-                  : "text-slate-400 hover:text-slate-100"
+                  ? "bg-indigo-50 text-indigo-600"
+                  : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
               )}
             >
               {label}
@@ -82,7 +82,7 @@ export function BlogNav() {
         <div className="flex items-center gap-3">
           <Link
             href="/demo"
-            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white transition-all hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/30"
+            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white transition-all hover:bg-indigo-700 hover:shadow-md hover:shadow-indigo-200"
           >
             Try Demo
           </Link>
@@ -90,7 +90,7 @@ export function BlogNav() {
             href="https://github.com/lebiraja/meta_hack"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-lg border border-white/10 px-4 py-1.5 text-xs font-semibold text-slate-300 transition-all hover:border-white/20 hover:text-white"
+            className="rounded-lg border border-slate-200 px-4 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-slate-300 hover:text-slate-900 hover:bg-slate-50"
           >
             GitHub
           </a>

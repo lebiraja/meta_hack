@@ -12,7 +12,7 @@ import { ArchitectureSection } from "@/components/blog/ArchitectureSection";
 import { ChallengesBento } from "@/components/blog/ChallengesBento";
 import { PullQuote } from "@/components/blog/PullQuote";
 import { TrainingPipeline } from "@/components/blog/TrainingPipeline";
-import { ImageGallery } from "@/components/blog/ImageGallery";
+import { TrainingPlots } from "@/components/blog/TrainingPlots";
 import { ResultsTable } from "@/components/blog/ResultsTable";
 import { TestimonialMarquee } from "@/components/blog/TestimonialMarquee";
 import { CallToAction } from "@/components/blog/CallToAction";
@@ -39,7 +39,7 @@ export default function BlogPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-white text-slate-900">
       <BlogNav />
       <Hero />
       <StatsBar />
@@ -53,7 +53,7 @@ export default function BlogPage() {
 
       <ChallengesBento />
       <TrainingPipeline />
-      <ImageGallery />
+      <TrainingPlots />
       <ResultsTable />
       <TestimonialMarquee />
 
@@ -63,8 +63,8 @@ export default function BlogPage() {
 
       {/* Deep dive article from blog.md */}
       {content && (
-        <section id="article" className="relative bg-slate-950 py-24 md:py-32">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+        <section id="article" className="relative bg-white py-24 md:py-32">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
 
           <div className="mx-auto max-w-3xl px-6">
             <motion.div
@@ -74,16 +74,16 @@ export default function BlogPage() {
               viewport={viewportOnce}
               className="mb-12 text-center"
             >
-              <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+              <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">
                 Full Technical Report
               </span>
               <h2
-                className="mt-3 text-4xl font-bold text-white"
+                className="mt-3 text-4xl font-bold text-slate-900"
                 style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}
               >
                 Deep Dive
               </h2>
-              <div className="mx-auto mt-4 h-px w-24 bg-gradient-to-r from-transparent via-indigo-500 to-transparent" />
+              <div className="mx-auto mt-4 h-px w-24 bg-gradient-to-r from-transparent via-indigo-400 to-transparent" />
             </motion.div>
 
             <article className="blog-prose">

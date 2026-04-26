@@ -37,7 +37,7 @@ export function BentoCard({
   return (
     <div
       className={cn(
-        "glass group relative overflow-hidden rounded-2xl p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-indigo-500/10",
+        "group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 hover:scale-[1.01] hover:shadow-md hover:shadow-indigo-100",
         colClass,
         rowClass,
         className

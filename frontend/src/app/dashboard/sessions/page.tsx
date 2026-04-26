@@ -9,10 +9,10 @@ export default function SessionsPage() {
   return (
     <div className="space-y-4 max-w-4xl">
       <div>
-        <h1 className="text-base font-semibold text-neutral-100">
+        <h1 className="text-base font-semibold text-gray-900">
           Session Logs
         </h1>
-        <p className="text-xs text-neutral-600 mt-0.5">
+        <p className="text-xs text-gray-400 mt-0.5">
           {sessionId
             ? `Session ${sessionId.slice(0, 8)}… · ${task}`
             : "No active session"}

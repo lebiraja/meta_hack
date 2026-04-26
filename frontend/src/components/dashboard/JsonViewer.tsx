@@ -2,28 +2,17 @@
 
 import { useState } from "react";
 
-interface Props {
-  data: unknown;
-  title?: string;
-  maxHeight?: number;
-}
+interface Props { data: unknown; title?: string; maxHeight?: number; }
 
 function syntaxHighlight(json: string): string {
   return json.replace(
     /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
     (match) => {
-      let cls = "text-cyan-400"; // number
+      let cls = "text-indigo-600"; // number
       if (/^"/.test(match)) {
-        if (/:$/.test(match)) {
-          cls = "text-indigo-300"; // key
-        } else {
-          cls = "text-green-400"; // string
-        }
-      } else if (/true|false/.test(match)) {
-        cls = "text-amber-400";
-      } else if (/null/.test(match)) {
-        cls = "text-neutral-500";
-      }
+        cls = /:$/.test(match) ? "text-gray-900 font-semibold" : "text-emerald-600"; // key : string
+      } else if (/true|false/.test(match)) cls = "text-violet-600";
+      else if (/null/.test(match)) cls = "text-gray-400";
       return `<span class="${cls}">${match}</span>`;
     }
   );
@@ -31,49 +20,28 @@ function syntaxHighlight(json: string): string {
 
 export function JsonViewer({ data, title, maxHeight = 400 }: Props) {
   const [copied, setCopied] = useState(false);
+  const raw = JSON.stringify(data, null, 2);
 
-  if (data === null || data === undefined) {
-    return (
-      <div className="border border-neutral-800 rounded overflow-hidden">
-        <div className="px-3 py-2 bg-neutral-900 border-b border-neutral-800">
-          <span className="text-xs text-neutral-500">{title ?? "JSON"}</span>
-        </div>
-        <div className="p-3 bg-neutral-950">
-          <span className="text-xs text-neutral-600 font-mono">null</span>
-        </div>
-      </div>
-    );
-  }
-
-  const json = JSON.stringify(data, null, 2);
-  const highlighted = syntaxHighlight(json);
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(json);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(raw).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
   };
 
   return (
-    <div className="border border-neutral-800 rounded overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-neutral-900 border-b border-neutral-800">
-        <span className="text-xs text-neutral-500">{title ?? "JSON"}</span>
-        <button
-          onClick={handleCopy}
-          className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors px-2 py-0.5 rounded hover:bg-neutral-800"
-        >
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        {title && <span className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">{title}</span>}
+        <button onClick={handleCopy} className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors font-medium">
           {copied ? "Copied!" : "Copy"}
         </button>
       </div>
       <div
-        className="overflow-auto p-3 bg-neutral-950"
+        className="bg-gray-50 border border-gray-200 rounded-xl p-3 overflow-auto font-mono text-xs leading-relaxed"
         style={{ maxHeight }}
-      >
-        <pre
-          className="text-xs font-mono leading-relaxed"
-          dangerouslySetInnerHTML={{ __html: highlighted }}
-        />
-      </div>
+        dangerouslySetInnerHTML={{ __html: syntaxHighlight(raw) }}
+      />
     </div>
   );
 }

@@ -72,10 +72,10 @@ const TASK_LABELS: Record<string, { label: string; difficulty: string }> = {
 };
 
 const DIFFICULTY_BADGE: Record<string, string> = {
-  easy:      "text-green-400  bg-green-400/10  border-green-400/30",
-  medium:    "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
-  hard:      "text-orange-400 bg-orange-400/10 border-orange-400/30",
-  nightmare: "text-red-400    bg-red-400/10    border-red-400/30",
+  easy:      "text-emerald-600  bg-green-400/10  border-green-400/30",
+  medium:    "text-amber-600 bg-yellow-400/10 border-yellow-400/30",
+  hard:      "text-orange-600 bg-orange-400/10 border-orange-400/30",
+  nightmare: "text-red-600    bg-red-50    border-red-400/30",
 };
 
 function pct(v: number) {
@@ -91,12 +91,12 @@ function delta(trained: number, baseline: number) {
 function ScoreBadge({ value }: { value: number }) {
   const cls =
     value >= 0.75
-      ? "text-green-400"
+      ? "text-emerald-600"
       : value >= 0.55
-      ? "text-yellow-400"
+      ? "text-amber-600"
       : value >= 0.35
-      ? "text-orange-400"
-      : "text-red-400";
+      ? "text-orange-600"
+      : "text-red-600";
   return <span className={cn("font-mono font-semibold", cls)}>{pct(value)}</span>;
 }
 
@@ -107,8 +107,8 @@ function DeltaBadge({ trained, baseline }: { trained: number; baseline: number }
       className={cn(
         "text-[10px] font-mono px-1.5 py-0.5 rounded border",
         d >= 0
-          ? "text-green-400 bg-green-400/10 border-green-400/30"
-          : "text-red-400 bg-red-400/10 border-red-400/30"
+          ? "text-emerald-600 bg-green-400/10 border-green-400/30"
+          : "text-red-600 bg-red-50 border-red-400/30"
       )}
     >
       {delta(trained, baseline)}
@@ -168,26 +168,26 @@ export default function BenchmarkPage() {
     <div className="space-y-6 max-w-4xl">
       {/* Header */}
       <div>
-        <h1 className="text-base font-semibold text-neutral-100">
+        <h1 className="text-base font-semibold text-gray-900">
           Before / After Benchmark
         </h1>
-        <p className="text-xs text-neutral-500 mt-0.5">
+        <p className="text-xs text-gray-400 mt-0.5">
           Baseline:{" "}
-          <span className="text-neutral-300 font-mono">
+          <span className="text-gray-600 font-mono">
             {baseline?.model ?? "meta/llama-3.3-70b-instruct"}
           </span>{" "}
           vs{" "}
-          <span className="text-indigo-400 font-mono">
+          <span className="text-indigo-600 font-mono">
             Llama-3.1-8B + GRPO (LoRA)
           </span>
         </p>
       </div>
 
       {loading && (
-        <div className="text-xs text-neutral-600 py-4">Loading baseline…</div>
+        <div className="text-xs text-gray-400 py-4">Loading baseline…</div>
       )}
       {error && (
-        <div className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded px-3 py-2">
+        <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
           {error}
         </div>
       )}
@@ -195,8 +195,8 @@ export default function BenchmarkPage() {
       {!loading && (
         <>
           {/* ── Summary bar chart ─────────────────────────────────────────── */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
-            <div className="text-[10px] text-neutral-500 uppercase tracking-wider mb-4">
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-4">
               Final Score — All Tasks
             </div>
             <ResponsiveContainer width="100%" height={200}>
@@ -207,7 +207,7 @@ export default function BenchmarkPage() {
               >
                 <XAxis
                   dataKey="task"
-                  tick={{ fontSize: 9, fill: "#737373" }}
+                  tick={{ fontSize: 9, fill: "#9ca3af" }}
                   angle={-30}
                   textAnchor="end"
                   interval={0}
@@ -217,15 +217,15 @@ export default function BenchmarkPage() {
                 <YAxis
                   domain={[0, 100]}
                   tickFormatter={(v: number) => `${v}%`}
-                  tick={{ fontSize: 9, fill: "#525252" }}
+                  tick={{ fontSize: 9, fill: "#9ca3af" }}
                   axisLine={false}
                   tickLine={false}
                   width={32}
                 />
                 <Tooltip
                   contentStyle={{
-                    background: "#171717",
-                    border: "1px solid #262626",
+                    background: "#ffffff",
+                    border: "1px solid #e5e7eb",
                     borderRadius: 4,
                     fontSize: 11,
                   }}
@@ -242,23 +242,23 @@ export default function BenchmarkPage() {
           </div>
 
           {/* ── Per-task comparison table ─────────────────────────────────── */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <table className="w-full text-xs">
-              <thead className="border-b border-neutral-800">
+              <thead className="border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-2.5 text-[10px] text-neutral-500 uppercase tracking-wider">
+                  <th className="text-left px-4 py-2.5 text-[10px] text-gray-400 uppercase tracking-wider">
                     Task
                   </th>
-                  <th className="text-center px-3 py-2.5 text-[10px] text-neutral-500 uppercase tracking-wider">
+                  <th className="text-center px-3 py-2.5 text-[10px] text-gray-400 uppercase tracking-wider">
                     Baseline
                   </th>
                   <th className="text-center px-3 py-2.5 text-[10px] text-indigo-500 uppercase tracking-wider">
                     Trained
                   </th>
-                  <th className="text-center px-3 py-2.5 text-[10px] text-neutral-500 uppercase tracking-wider">
+                  <th className="text-center px-3 py-2.5 text-[10px] text-gray-400 uppercase tracking-wider">
                     Delta
                   </th>
-                  <th className="text-center px-3 py-2.5 text-[10px] text-neutral-500 uppercase tracking-wider">
+                  <th className="text-center px-3 py-2.5 text-[10px] text-gray-400 uppercase tracking-wider">
                     Improvement
                   </th>
                 </tr>
@@ -274,15 +274,15 @@ export default function BenchmarkPage() {
                       key={t}
                       onClick={() => setSelectedTask(t)}
                       className={cn(
-                        "border-b border-neutral-800/50 cursor-pointer transition-colors",
+                        "border-b border-gray-200/50 cursor-pointer transition-colors",
                         selectedTask === t
                           ? "bg-indigo-500/10"
-                          : "hover:bg-neutral-800/40"
+                          : "hover:bg-gray-100/40"
                       )}
                     >
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
-                          <span className="text-neutral-200 font-medium">
+                          <span className="text-gray-700 font-medium">
                             {info.label}
                           </span>
                           <span
@@ -306,7 +306,7 @@ export default function BenchmarkPage() {
                       </td>
                       <td className="px-3 py-2.5 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          <div className="w-20 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                          <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                             <div
                               className="h-full bg-indigo-500 rounded-full transition-all"
                               style={{ width: `${Math.min(100, Math.abs(pctImprove))}%` }}
@@ -315,7 +315,7 @@ export default function BenchmarkPage() {
                           <span
                             className={cn(
                               "text-[10px] font-mono",
-                              pctImprove >= 0 ? "text-green-400" : "text-red-400"
+                              pctImprove >= 0 ? "text-emerald-600" : "text-red-600"
                             )}
                           >
                             {pctImprove >= 0 ? "+" : ""}
@@ -331,11 +331,11 @@ export default function BenchmarkPage() {
           </div>
 
           {/* ── Reward component radar for selected task ──────────────────── */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] text-neutral-500 uppercase tracking-wider">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wider">
                 Reward Components —{" "}
-                <span className="text-neutral-300">
+                <span className="text-gray-600">
                   {TASK_LABELS[selectedTask]?.label ?? selectedTask}
                 </span>
               </span>
@@ -347,8 +347,8 @@ export default function BenchmarkPage() {
                     className={cn(
                       "text-[9px] px-2 py-0.5 rounded border transition-colors",
                       selectedTask === t
-                        ? "text-indigo-400 bg-indigo-500/15 border-indigo-500/30"
-                        : "text-neutral-500 bg-neutral-800 border-neutral-700 hover:text-neutral-300"
+                        ? "text-indigo-600 bg-indigo-500/15 border-indigo-500/30"
+                        : "text-gray-400 bg-gray-100 border-gray-200 hover:text-gray-600"
                     )}
                   >
                     {TASK_LABELS[t]?.label}
@@ -364,7 +364,7 @@ export default function BenchmarkPage() {
                   <PolarGrid stroke="#262626" />
                   <PolarAngleAxis
                     dataKey="component"
-                    tick={{ fontSize: 9, fill: "#737373" }}
+                    tick={{ fontSize: 9, fill: "#9ca3af" }}
                   />
                   <Radar
                     name="Baseline"
@@ -383,8 +383,8 @@ export default function BenchmarkPage() {
                   <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
                   <Tooltip
                     contentStyle={{
-                      background: "#171717",
-                      border: "1px solid #262626",
+                      background: "#ffffff",
+                      border: "1px solid #e5e7eb",
                       borderRadius: 4,
                       fontSize: 11,
                     }}
@@ -400,10 +400,10 @@ export default function BenchmarkPage() {
                   const tr = (TRAINED_RESULTS[selectedTask]?.[key] as number | undefined) ?? 0;
                   return (
                     <div key={key} className="flex items-center gap-2">
-                      <span className="w-20 text-[10px] text-neutral-500 shrink-0">
+                      <span className="w-20 text-[10px] text-gray-400 shrink-0">
                         {label}
                       </span>
-                      <div className="flex-1 h-1.5 bg-neutral-800 rounded-full overflow-hidden relative">
+                      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden relative">
                         <div
                           className="absolute h-full bg-neutral-600 rounded-full"
                           style={{ width: `${Math.round(b * 100)}%` }}
@@ -413,24 +413,24 @@ export default function BenchmarkPage() {
                           style={{ width: `${Math.round(tr * 100)}%` }}
                         />
                       </div>
-                      <span className="text-[9px] font-mono text-neutral-500 w-8 text-right shrink-0">
+                      <span className="text-[9px] font-mono text-gray-400 w-8 text-right shrink-0">
                         {pct(b)}
                       </span>
-                      <span className="text-[9px] font-mono text-indigo-400 w-8 text-right shrink-0">
+                      <span className="text-[9px] font-mono text-indigo-600 w-8 text-right shrink-0">
                         {pct(tr)}
                       </span>
                     </div>
                   );
                 })}
-                <div className="mt-3 pt-2 border-t border-neutral-800">
+                <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="flex gap-3 text-[9px]">
                     <span className="flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-neutral-600 inline-block" />
-                      <span className="text-neutral-500">Baseline (NIM 70B)</span>
+                      <span className="text-gray-400">Baseline (NIM 70B)</span>
                     </span>
                     <span className="flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-indigo-500 inline-block" />
-                      <span className="text-indigo-400">Trained (8B + GRPO)</span>
+                      <span className="text-indigo-600">Trained (8B + GRPO)</span>
                     </span>
                   </div>
                 </div>
@@ -439,8 +439,8 @@ export default function BenchmarkPage() {
           </div>
 
           {/* ── Training pipeline summary ─────────────────────────────────── */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
-            <div className="text-[10px] text-neutral-500 uppercase tracking-wider mb-3">
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">
               Training Pipeline
             </div>
             <div className="grid grid-cols-4 gap-3">
@@ -459,25 +459,25 @@ export default function BenchmarkPage() {
                       "rounded border p-3 space-y-1.5 transition-colors cursor-pointer",
                       selectedTask === task
                         ? "border-indigo-500/40 bg-indigo-500/8"
-                        : "border-neutral-800"
+                        : "border-gray-200"
                     )}
                     onClick={() => setSelectedTask(task)}
                   >
-                    <div className="text-[9px] text-neutral-600 uppercase tracking-wider">
+                    <div className="text-[9px] text-gray-400 uppercase tracking-wider">
                       {stage}
                     </div>
-                    <div className="text-[11px] font-medium text-neutral-200">
+                    <div className="text-[11px] font-medium text-gray-700">
                       {label}
                     </div>
-                    <div className="text-[9px] text-neutral-600">
+                    <div className="text-[9px] text-gray-400">
                       Advance ≥ {threshold}
                     </div>
                     <div className="flex items-center gap-1.5 pt-1">
-                      <span className="text-[10px] text-neutral-500 font-mono">
+                      <span className="text-[10px] text-gray-400 font-mono">
                         {pct(b)}
                       </span>
-                      <span className="text-[9px] text-neutral-600">→</span>
-                      <span className="text-[10px] text-indigo-400 font-mono font-semibold">
+                      <span className="text-[9px] text-gray-400">→</span>
+                      <span className="text-[10px] text-indigo-600 font-mono font-semibold">
                         {pct(tr)}
                       </span>
                     </div>

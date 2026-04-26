@@ -22,17 +22,17 @@ const TABS: { id: DemoMode; label: string; description: string }[] = [
 
 export function ModeToggle({ mode, onChange }: Props) {
   return (
-    <div className="flex items-center gap-1 border border-neutral-800 rounded-lg p-0.5 bg-neutral-900">
+    <div className="flex items-center gap-1 border border-gray-200 rounded-xl p-0.5 bg-gray-50">
       {TABS.map((tab) => (
         <button
           key={tab.id}
           onClick={() => onChange(tab.id)}
           title={tab.description}
           className={cn(
-            "px-4 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
+            "px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200",
             mode === tab.id
-              ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/20"
-              : "text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50"
+              ? "bg-white text-gray-900 shadow-sm border border-gray-200"
+              : "text-gray-400 hover:text-gray-600"
           )}
         >
           {tab.label}

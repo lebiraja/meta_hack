@@ -28,15 +28,15 @@ export default function ApiInspectorPage() {
   return (
     <div className="space-y-4 max-w-3xl">
       <div>
-        <h1 className="text-base font-semibold text-neutral-100">
+        <h1 className="text-base font-semibold text-gray-900">
           API Inspector
         </h1>
-        <p className="text-xs text-neutral-600 mt-0.5">
+        <p className="text-xs text-gray-400 mt-0.5">
           Raw JSON from the last backend response.
           {sessionId && (
             <span className="ml-1">
               Session:{" "}
-              <span className="font-mono text-neutral-400">
+              <span className="font-mono text-gray-500">
                 {sessionId.slice(0, 8)}…
               </span>
             </span>
@@ -50,18 +50,18 @@ export default function ApiInspectorPage() {
       {/* Replay fetcher */}
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-neutral-500">Replay (completed session)</span>
+          <span className="text-xs text-gray-400">Replay (completed session)</span>
           <button
             onClick={fetchReplay}
             disabled={!sessionId || replayLoading}
-            className="px-2 py-1 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded
+            className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 rounded
                        transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {replayLoading ? "Loading…" : "Fetch Replay"}
           </button>
         </div>
         {replayError && (
-          <p className="text-xs text-red-400">{replayError}</p>
+          <p className="text-xs text-red-600">{replayError}</p>
         )}
         {replayData !== null && (
           <JsonViewer data={replayData} title="Replay Data" maxHeight={500} />

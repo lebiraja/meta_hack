@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/wh
 # ── Frontend build ────────────────────────────────────────────────────────────
 COPY frontend/ ./frontend/
 WORKDIR /app/frontend
-RUN npm ci --prefer-offline
+RUN npm ci
 
 # NEXT_PUBLIC_API_URL="" → relative URLs → nginx routes them to FastAPI on 8080
 ENV NEXT_PUBLIC_API_URL=""

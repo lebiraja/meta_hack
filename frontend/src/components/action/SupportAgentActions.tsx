@@ -55,7 +55,7 @@ export function SupportAgentActions({ isLoading }: Props) {
     {
       id: "request_info" as const,
       label: "Request Info",
-      color: "bg-neutral-700 hover:bg-neutral-600 text-neutral-100",
+      color: "bg-neutral-700 hover:bg-neutral-600 text-gray-900",
     },
     {
       id: "query_user" as const,
@@ -103,8 +103,8 @@ export function SupportAgentActions({ isLoading }: Props) {
             onChange={(e) => setMessage(e.target.value)}
             disabled={isLoading}
             rows={3}
-            className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100
-                       placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-indigo-500
+            className="flex-1 bg-white border border-gray-200 rounded px-3 py-2 text-sm text-gray-900
+                       placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500
                        resize-none disabled:opacity-50"
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && message.trim()) {
@@ -132,8 +132,8 @@ export function SupportAgentActions({ isLoading }: Props) {
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             disabled={isLoading}
-            className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100
-                       placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-orange-500
+            className="flex-1 bg-white border border-gray-200 rounded px-3 py-2 text-sm text-gray-900
+                       placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-orange-500
                        disabled:opacity-50"
           />
           <button
@@ -156,8 +156,8 @@ export function SupportAgentActions({ isLoading }: Props) {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             disabled={isLoading}
-            className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100
-                       placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-indigo-500
+            className="flex-1 bg-white border border-gray-200 rounded px-3 py-2 text-sm text-gray-900
+                       placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500
                        disabled:opacity-50"
           />
           <button
@@ -165,7 +165,7 @@ export function SupportAgentActions({ isLoading }: Props) {
             onClick={() =>
               submit({ action_type: "request_info", message, role: "support_agent" })
             }
-            className="px-3 py-2 bg-neutral-700 hover:bg-neutral-600 text-neutral-100 text-xs rounded
+            className="px-3 py-2 bg-neutral-700 hover:bg-neutral-600 text-gray-900 text-xs rounded
                        font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Send
@@ -180,8 +180,8 @@ export function SupportAgentActions({ isLoading }: Props) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={isLoading}
-            className="flex-1 bg-neutral-900 border border-cyan-700/50 rounded px-3 py-2 text-sm text-neutral-100
-                       placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-cyan-500
+            className="flex-1 bg-white border border-cyan-700/50 rounded px-3 py-2 text-sm text-gray-900
+                       placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-cyan-500
                        disabled:opacity-50 font-mono"
           />
           <button
@@ -208,8 +208,8 @@ export function SupportAgentActions({ isLoading }: Props) {
             value={orderId}
             onChange={(e) => setOrderId(e.target.value)}
             disabled={isLoading}
-            className="flex-1 bg-neutral-900 border border-teal-700/50 rounded px-3 py-2 text-sm text-neutral-100
-                       placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-teal-500
+            className="flex-1 bg-white border border-teal-700/50 rounded px-3 py-2 text-sm text-gray-900
+                       placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-teal-500
                        disabled:opacity-50 font-mono"
           />
           <button

@@ -9,14 +9,14 @@ export function ErrorToast() {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-sm">
-      <div className="bg-neutral-900 border border-red-500/30 rounded-lg px-4 py-3 shadow-lg flex items-start gap-3">
+      <div className="bg-white border border-red-200 rounded-xl px-4 py-3 shadow-lg flex items-start gap-3">
         <div className="flex-1">
-          <p className="text-xs font-medium text-red-400">Error</p>
-          <p className="text-xs text-neutral-300 mt-0.5">{error}</p>
+          <p className="text-xs font-semibold text-red-600">Error</p>
+          <p className="text-xs text-gray-600 mt-0.5">{error}</p>
         </div>
         <button
           onClick={dismissError}
-          className="text-neutral-600 hover:text-neutral-400 text-sm leading-none flex-shrink-0"
+          className="text-gray-400 hover:text-gray-600 text-sm leading-none flex-shrink-0"
         >
           ✕
         </button>

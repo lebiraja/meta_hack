@@ -21,10 +21,10 @@ export default function TestPanelPage() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-base font-semibold text-neutral-100">
+        <h1 className="text-base font-semibold text-gray-900">
           Test Panel
         </h1>
-        <p className="text-xs text-neutral-600 mt-0.5">
+        <p className="text-xs text-gray-400 mt-0.5">
           Click any task to start a new session and jump to the demo.
         </p>
       </div>
@@ -41,7 +41,7 @@ export default function TestPanelPage() {
 function Section({ title, tasks }: { title: string; tasks: TaskName[] }) {
   return (
     <div className="space-y-2">
-      <h2 className="text-[10px] text-neutral-500 uppercase tracking-widest">
+      <h2 className="text-[10px] text-gray-400 uppercase tracking-widest">
         {title}
       </h2>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">

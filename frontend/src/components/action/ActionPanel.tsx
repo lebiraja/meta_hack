@@ -13,7 +13,7 @@ export function ActionPanel() {
   const role = observation.active_role;
 
   return (
-    <div className="border-t border-neutral-800 bg-neutral-950 px-4 py-3">
+    <div className="border-t border-gray-200 bg-white px-4 py-3">
       {role === "support_agent" && <SupportAgentActions isLoading={isLoading} />}
       {role === "supervisor" && <SupervisorActions isLoading={isLoading} />}
       {role === "manager" && <ManagerActions isLoading={isLoading} />}

@@ -23,7 +23,7 @@ function VirtualMessage({ msg }: { msg: Message }) {
   if (isSystem) {
     return (
       <div className="flex justify-center my-1">
-        <span className="text-[10px] italic text-neutral-500 bg-neutral-900 border border-neutral-800 rounded px-2 py-1">
+        <span className="text-[10px] italic text-gray-400 bg-gray-50 border border-gray-200 rounded-full px-3 py-1">
           {msg.content}
         </span>
       </div>
@@ -37,22 +37,17 @@ function VirtualMessage({ msg }: { msg: Message }) {
         isCustomer ? "items-end ml-auto" : "items-start mr-auto"
       )}
     >
-      <div
-        className={cn(
-          "flex items-center gap-1.5",
-          isCustomer ? "flex-row-reverse" : "flex-row"
-        )}
-      >
+      <div className={cn("flex items-center gap-1.5", isCustomer ? "flex-row-reverse" : "flex-row")}>
         <span
           className={cn(
-            "text-[9px] uppercase tracking-wide font-medium",
-            isCustomer ? "text-indigo-400" : (ROLE_TEXT_COLORS[msg.role] ?? "text-neutral-400")
+            "text-[9px] uppercase tracking-wide font-semibold",
+            isCustomer ? "text-indigo-600" : (ROLE_TEXT_COLORS[msg.role] ?? "text-gray-400")
           )}
         >
           {isCustomer ? "You" : roleDisplayName(msg.role)}
         </span>
         {hasHinglish && (
-          <span className="text-[9px] text-yellow-400 border border-yellow-400/30 bg-yellow-400/10 px-1 rounded">
+          <span className="text-[9px] text-amber-600 border border-amber-200 bg-amber-50 px-1.5 rounded-full font-medium">
             Hinglish
           </span>
         )}
@@ -63,10 +58,10 @@ function VirtualMessage({ msg }: { msg: Message }) {
           isCustomer
             ? "bg-indigo-600 text-white rounded-br-sm"
             : msg.role === "supervisor"
-            ? "bg-amber-500/15 border border-amber-500/20 text-amber-100 rounded-bl-sm"
+            ? "bg-amber-50 border border-amber-200 text-amber-900 rounded-bl-sm"
             : msg.role === "manager"
-            ? "bg-rose-500/15 border border-rose-500/20 text-rose-100 rounded-bl-sm"
-            : "bg-neutral-800 text-neutral-100 rounded-bl-sm"
+            ? "bg-rose-50 border border-rose-200 text-rose-900 rounded-bl-sm"
+            : "bg-gray-100 text-gray-800 rounded-bl-sm"
         )}
       >
         {msg.content}
@@ -78,22 +73,17 @@ function VirtualMessage({ msg }: { msg: Message }) {
 function TypingIndicator({ role }: { role?: string }) {
   return (
     <div className="flex items-end gap-2 max-w-[80%]">
-      <div className="bg-neutral-800 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1">
+      <div className="bg-gray-100 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1">
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className="w-1.5 h-1.5 rounded-full bg-neutral-500 animate-bounce"
+            className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce"
             style={{ animationDelay: `${i * 150}ms` }}
           />
         ))}
       </div>
       {role && (
-        <span
-          className={cn(
-            "text-[9px] uppercase tracking-wide pb-1",
-            ROLE_TEXT_COLORS[role] ?? "text-neutral-500"
-          )}
-        >
+        <span className={cn("text-[9px] uppercase tracking-wide pb-1", ROLE_TEXT_COLORS[role] ?? "text-gray-400")}>
           {roleDisplayName(role)} typing…
         </span>
       )}
@@ -101,14 +91,7 @@ function TypingIndicator({ role }: { role?: string }) {
   );
 }
 
-export function CustomerChatInput({
-  virtualMessages,
-  isThinking,
-  isDone,
-  activeRole,
-  error,
-  onSend,
-}: Props) {
+export function CustomerChatInput({ virtualMessages, isThinking, isDone, activeRole, error, onSend }: Props) {
   const { sessionId, observation } = useSessionStore();
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -122,9 +105,7 @@ export function CustomerChatInput({
   }, [virtualMessages.length, isThinking]);
 
   useEffect(() => {
-    if (hasSession && !isDone) {
-      textareaRef.current?.focus();
-    }
+    if (hasSession && !isDone) textareaRef.current?.focus();
   }, [hasSession, isDone]);
 
   const handleSend = async () => {
@@ -132,38 +113,35 @@ export function CustomerChatInput({
     if (!text || isThinking || sending || isDone || !hasSession) return;
     setInput("");
     setSending(true);
-    try {
-      await onSend(text);
-    } finally {
-      setSending(false);
-      textareaRef.current?.focus();
-    }
+    try { await onSend(text); }
+    finally { setSending(false); textareaRef.current?.focus(); }
   };
 
   const isEmpty = virtualMessages.length === 0;
 
   return (
     <div className="flex flex-col h-full">
-      {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {!hasSession ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center max-w-xs space-y-2">
-              <div className="text-neutral-700 text-3xl select-none">💬</div>
-              <p className="text-sm text-neutral-600">
-                Select a task and click <span className="text-neutral-400 font-medium">New Session</span> to start chatting as the customer.
+            <div className="text-center max-w-xs space-y-3">
+              <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mx-auto">
+                <span className="text-xl">💬</span>
+              </div>
+              <p className="text-sm text-gray-500">
+                Select a task and click <span className="text-gray-700 font-semibold">New Session</span> to start chatting as the customer.
               </p>
             </div>
           </div>
         ) : isEmpty && !isDone ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center max-w-sm space-y-2">
-              <div className="text-neutral-700 text-3xl select-none">✍️</div>
-              <p className="text-sm text-neutral-500">
-                Session ready! Type your issue below as the customer.
-              </p>
-              <p className="text-xs text-neutral-700">
-                Ticket: <span className="text-neutral-500">{observation?.subject}</span>
+            <div className="text-center max-w-sm space-y-3">
+              <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center mx-auto">
+                <span className="text-xl">✍️</span>
+              </div>
+              <p className="text-sm text-gray-600 font-medium">Session ready! Type your issue below.</p>
+              <p className="text-xs text-gray-400">
+                Ticket: <span className="text-gray-500">{observation?.subject}</span>
               </p>
             </div>
           </div>
@@ -174,22 +152,18 @@ export function CustomerChatInput({
         <div ref={bottomRef} />
       </div>
 
-      {/* Error */}
       {error && (
-        <div className="mx-4 mb-2 text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded px-2 py-1.5">
+        <div className="mx-4 mb-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
           {error}
         </div>
       )}
 
-      {/* Done state */}
       {isDone ? (
-        <div className="border-t border-neutral-800 px-4 py-3">
-          <p className="text-xs text-neutral-500 text-center">
-            Episode complete. Start a new session to continue.
-          </p>
+        <div className="border-t border-gray-200 px-4 py-3 bg-gray-50">
+          <p className="text-xs text-gray-400 text-center">Episode complete. Start a new session to continue.</p>
         </div>
       ) : (
-        <div className="border-t border-neutral-800 px-4 py-3">
+        <div className="border-t border-gray-200 px-4 py-3 bg-white">
           <div className="flex gap-2">
             <textarea
               ref={textareaRef}
@@ -199,26 +173,22 @@ export function CustomerChatInput({
               disabled={isThinking || sending || !hasSession}
               rows={2}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && input.trim()) {
-                  handleSend();
-                }
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && input.trim()) handleSend();
               }}
-              className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-neutral-100
-                         placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-indigo-500
-                         resize-none disabled:opacity-50 transition-opacity"
+              className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900
+                         placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300
+                         resize-none disabled:opacity-50 transition-all"
             />
             <button
               onClick={handleSend}
               disabled={!input.trim() || isThinking || sending || !hasSession}
-              className="self-end px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-xl
-                         font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="self-end px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs rounded-xl
+                         font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
             >
               {sending || isThinking ? "…" : "Send"}
             </button>
           </div>
-          <p className="text-[10px] text-neutral-700 mt-1.5">
-            ⌘↵ to send · AI responds as the support agent
-          </p>
+          <p className="text-[10px] text-gray-400 mt-1.5">⌘↵ to send · AI responds as the support agent</p>
         </div>
       )}
     </div>

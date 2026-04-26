@@ -1,37 +1,18 @@
-import { cn, roleDisplayName } from "@/lib/utils";
-import { ROLE_TEXT_COLORS, ROLE_BG_COLORS } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import { ROLE_TEXT_COLORS } from "@/lib/constants";
+import { roleDisplayName } from "@/lib/utils";
 
-interface Props {
-  role: string;
-  isLoading?: boolean;
-}
+interface Props { role: string; isLoading: boolean; }
 
-export function ActiveRoleIndicator({ role, isLoading = false }: Props) {
-  const textColor = ROLE_TEXT_COLORS[role] ?? "text-neutral-400";
-  const bgColor = ROLE_BG_COLORS[role] ?? "bg-neutral-800";
-
+export function ActiveRoleIndicator({ role, isLoading }: Props) {
   return (
-    <div
-      className={cn(
-        "flex items-center gap-2 px-3 py-2 rounded border",
-        bgColor,
-        "border-neutral-800"
-      )}
-    >
-      <span
-        className={cn(
-          "w-1.5 h-1.5 rounded-full flex-shrink-0",
-          isLoading ? "bg-neutral-500" : textColor.replace("text-", "bg-"),
-          !isLoading && "animate-pulse"
-        )}
-      />
-      <span className="text-xs text-neutral-500">Now acting:</span>
-      <span className={cn("text-xs font-medium", textColor)}>
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-200">
+      <span className={cn("w-2 h-2 rounded-full flex-shrink-0", isLoading && "animate-pulse",
+        ROLE_TEXT_COLORS[role]?.replace("text-", "bg-") ?? "bg-indigo-500")} />
+      <span className="text-[10px] text-gray-400">Now acting:</span>
+      <span className={cn("text-xs font-semibold", ROLE_TEXT_COLORS[role] ?? "text-indigo-600")}>
         {roleDisplayName(role)}
       </span>
-      {isLoading && (
-        <span className="text-xs text-neutral-600 ml-auto">Processing…</span>
-      )}
     </div>
   );
 }

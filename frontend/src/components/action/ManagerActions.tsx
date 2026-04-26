@@ -74,8 +74,8 @@ export function ManagerActions({ isLoading }: Props) {
             onChange={(e) => setMessage(e.target.value)}
             disabled={isLoading}
             rows={3}
-            className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100
-                       placeholder:text-neutral-600 focus:outline-none resize-none disabled:opacity-50
+            className="flex-1 bg-white border border-gray-200 rounded px-3 py-2 text-sm text-gray-900
+                       placeholder:text-gray-400 focus:outline-none resize-none disabled:opacity-50
                        focus:ring-1 focus:ring-rose-500"
           />
           <button
@@ -105,8 +105,8 @@ export function ManagerActions({ isLoading }: Props) {
             onChange={(e) => setDirective(e.target.value)}
             disabled={isLoading}
             rows={2}
-            className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100
-                       placeholder:text-neutral-600 focus:outline-none resize-none disabled:opacity-50
+            className="flex-1 bg-white border border-gray-200 rounded px-3 py-2 text-sm text-gray-900
+                       placeholder:text-gray-400 focus:outline-none resize-none disabled:opacity-50
                        focus:ring-1 focus:ring-amber-500"
           />
           <button

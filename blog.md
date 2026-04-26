@@ -191,6 +191,38 @@ The most counter-intuitive learned behaviour was proper escalation. Language mod
 
 ---
 
+## Training Curves
+
+We ran GRPO training on Qwen2.5-1.5B (Colab T4, 30 steps) and Llama-3.1-8B (L40S, 150 steps with curriculum progression). Here are the real plots from the Colab run:
+
+**Reward** — climbs above the baseline throughout training, smoothed trend shows consistent improvement:
+
+![Reward curve](results/plot_reward.png)
+
+**Loss** — GRPO loss stays stable, no divergence:
+
+![Loss curve](results/plot_loss.png)
+
+**Learning Rate** — clean cosine annealing from 5e-5 → 5e-6:
+
+![Learning rate](results/plot_lr.png)
+
+**Invalid Rate** — near-zero throughout. One brief spike at step 5 (early exploration), then flat. Never approached the 90% collapse threshold:
+
+![Invalid rate](results/plot_invalid_rate.png)
+
+**Eval Score History** — best checkpoint 0.152 vs baseline 0.14:
+
+![Eval scores](results/plot_eval_scores.png)
+
+**Before vs After** — trained agent (green) consistently scores above the untrained baseline (red) across all 5 eval episodes:
+
+![Before vs after](results/plot_before_after.png)
+
+On the full L40S run, the model auto-advanced through curriculum stages (basic → supervisor → full_hierarchy) with reward reaching **0.709** and `final=1.000` episodes by step 90.
+
+---
+
 ## Demo & API
 
 **Live demo:** [huggingface.co/spaces/lebiraja/customer-support-env](https://huggingface.co/spaces/lebiraja/customer-support-env)
@@ -213,7 +245,7 @@ curl -X POST "https://lebiraja-customer-support-env.hf.space/step?session_id=<id
   -d '{"action_type": "respond", "message": "Hello! I am here to help. Could you confirm your order ID?"}'
 ```
 
-**Training notebook:** [Google Colab](https://colab.research.google.com/drive/1OSPzLQD6H9jlxUY8p_jUyx_T_xrj31Ph?usp=sharing) — runs on a free T4, full GRPO training on A100.
+**Training notebook:** [Google Colab](https://colab.research.google.com/drive/1RD3OUfixs7UWs9m7I0PLXPg-48OWYzKG?usp=sharing) — runs on a free T4, full GRPO training on A100.
 
 ---
 
@@ -235,7 +267,7 @@ curl -X POST "https://lebiraja-customer-support-env.hf.space/step?session_id=<id
 |----------|---|
 | Live Demo (HF Space) | [huggingface.co/spaces/lebiraja/customer-support-env](https://huggingface.co/spaces/lebiraja/customer-support-env) |
 | GitHub Repository | [github.com/lebiraja/meta_hack](https://github.com/lebiraja/meta_hack) |
-| Training Notebook (Colab) | [Open in Colab](https://colab.research.google.com/drive/1OSPzLQD6H9jlxUY8p_jUyx_T_xrj31Ph?usp=sharing) |
+| Training Notebook (Colab) | [Open in Colab](https://colab.research.google.com/drive/1RD3OUfixs7UWs9m7I0PLXPg-48OWYzKG?usp=sharing) |
 | OpenEnv YAML Spec | [openenv.yaml](https://github.com/lebiraja/meta_hack/blob/main/openenv.yaml) |
 
 ---

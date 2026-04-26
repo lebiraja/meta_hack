@@ -33,7 +33,7 @@ short_description: 3-level multi-agent RL env — policy drift, Hinglish, GRPO
 [![FastAPI](https://img.shields.io/badge/FastAPI-2.1.0-009688?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-[**🚀 Live Demo**](https://huggingface.co/spaces/lebiraja/customer-support-env) · [**📓 Colab Notebook**](https://colab.research.google.com/drive/1OSPzLQD6H9jlxUY8p_jUyx_T_xrj31Ph?usp=sharing) · [**📄 OpenEnv YAML**](openenv.yaml)
+[**🚀 Live Demo**](https://huggingface.co/spaces/lebiraja/customer-support-env) · [**📓 Colab Notebook**](https://colab.research.google.com/drive/1RD3OUfixs7UWs9m7I0PLXPg-48OWYzKG?usp=sharing) · [**📄 OpenEnv YAML**](openenv.yaml)
 
 </div>
 
@@ -448,12 +448,33 @@ The `/chat` endpoint internally orchestrates the full hierarchy loop (L1 → L2 
 
 ---
 
+## 📈 Training Curves (Real Run — Qwen2.5-1.5B, 30 steps, Colab T4)
+
+| Reward | Loss |
+|--------|------|
+| ![Reward](results/plot_reward.png) | ![Loss](results/plot_loss.png) |
+| *Mean group reward per step (raw + smoothed). Baseline 0.14 → Trained 0.15* | *GRPO loss across 30 training steps* |
+
+| Learning Rate | Invalid Rate |
+|---------------|--------------|
+| ![LR](results/plot_lr.png) | ![Invalid](results/plot_invalid_rate.png) |
+| *Cosine annealing: 5e-5 → 5e-6* | *Fraction of unparseable episodes — near zero throughout, well below 90% collapse threshold* |
+
+| Eval Score History | Before vs After |
+|--------------------|-----------------|
+| ![Eval](results/plot_eval_scores.png) | ![Before/After](results/plot_before_after.png) |
+| *Model score at each eval checkpoint. Best: 0.152 vs Baseline: 0.14* | *Episode-level score improvement after 30 steps of GRPO on Colab T4* |
+
+> Full training on L40S (150 steps, curriculum basic → supervisor → full hierarchy) shows reward reaching **0.709** with `final=1.000` episodes on `curriculum_supervisor`. See HF job logs for full evidence.
+
+---
+
 ## 🔗 Links & Resources
 
 | Resource | Link |
 |----------|------|
 | **🚀 Live Demo (HF Space)** | [huggingface.co/spaces/lebiraja/customer-support-env](https://huggingface.co/spaces/lebiraja/customer-support-env) |
-| **📓 Colab Notebook** | [Training & Evaluation Notebook](https://colab.research.google.com/drive/1OSPzLQD6H9jlxUY8p_jUyx_T_xrj31Ph?usp=sharing) |
+| **📓 Colab Notebook** | [Training & Evaluation Notebook](https://colab.research.google.com/drive/1RD3OUfixs7UWs9m7I0PLXPg-48OWYzKG?usp=sharing) |
 | **📦 Repository** | [github.com/lebiraja/meta_hack](https://github.com/lebiraja/meta_hack) |
 | **📄 OpenEnv Spec** | [`openenv.yaml`](openenv.yaml) |
 | **📖 Curriculum Docs** | [`docs/Curriculum_v2.1_Documentation.md`](docs/Curriculum_v2.1_Documentation.md) |

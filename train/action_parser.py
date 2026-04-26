@@ -56,6 +56,89 @@ FALLBACK_ACTIONS: Dict[str, Dict[str, str]] = {
 }
 
 
+def _preprocess_json(s: str) -> str:
+    """
+    One-pass pre-processing before json.loads():
+    1. Strip Python-style # comments outside string values
+    2. Escape literal control characters (newlines, tabs) inside string values
+
+    Handles two common model failure modes observed in v4 training:
+    - "Invalid control character": model writes literal \\n inside a JSON string
+    - "Expecting ',' delimiter": model appends # comment after a field value
+    """
+    result = []
+    in_string = False
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        # Handle escape sequences inside strings — pass through unchanged
+        if ch == "\\" and in_string:
+            result.append(ch)
+            i += 1
+            if i < len(s):
+                result.append(s[i])
+                i += 1
+            continue
+        # Toggle string mode on unescaped double-quote
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+        elif in_string:
+            # Inside a string: escape control characters that JSON forbids as literals
+            if ch == "\n":
+                result.append("\\n")
+            elif ch == "\r":
+                result.append("\\r")
+            elif ch == "\t":
+                result.append("\\t")
+            elif ord(ch) < 0x20:
+                result.append(f"\\u{ord(ch):04x}")
+            else:
+                result.append(ch)
+        elif ch == "#":
+            # Outside a string: Python comment — skip to end of line
+            while i < len(s) and s[i] != "\n":
+                i += 1
+            continue
+        else:
+            result.append(ch)
+        i += 1
+    return "".join(result)
+
+
+def _repair_truncated_json(text: str) -> str | None:
+    """
+    Attempt to close a JSON object that was truncated before the closing brace.
+    Handles the common case where the model outputs valid content but forgets the final "}.
+    """
+    # Find the opening brace
+    start = text.find("{")
+    if start == -1:
+        return None
+    fragment = text[start:].rstrip()
+    if fragment.endswith("}"):
+        return fragment  # already closed, regex should have caught it
+    # Count unmatched double-quotes to detect an open string
+    in_string = False
+    i = 0
+    while i < len(fragment):
+        ch = fragment[i]
+        if ch == "\\" and in_string:
+            i += 2  # skip escaped character
+            continue
+        if ch == '"':
+            in_string = not in_string
+        i += 1
+    if in_string:
+        fragment += '"'  # close the open string
+    fragment += "}"
+    try:
+        json.loads(fragment)
+        return fragment
+    except json.JSONDecodeError:
+        return None
+
+
 def parse_action(
     text: str,
     active_role: str = "support_agent",
@@ -82,13 +165,19 @@ def parse_action(
             if not line.startswith("```")
         ).strip()
 
-    # Extract first JSON object
-    match = re.search(r"\{[\s\S]*?\}", cleaned)
-    if not match:
+    # Extract outermost JSON object (greedy — captures full object even if message contains {})
+    match = re.search(r"\{[\s\S]*\}", cleaned)
+    raw = match.group(0) if match else None
+
+    # If no closing } found, try to repair truncated JSON (model stopped before closing brace)
+    if raw is None and "{" in cleaned:
+        raw = _repair_truncated_json(cleaned)
+
+    if raw is None:
         return None, f"no JSON object found in output: {text[:100]!r}"
 
     try:
-        action = json.loads(match.group(0))
+        action = json.loads(_preprocess_json(raw))
     except json.JSONDecodeError as e:
         return None, f"JSON parse error: {e} — text: {text[:100]!r}"
 

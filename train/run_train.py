@@ -227,6 +227,8 @@ def train(config: TrainConfig, start_task: str | None, device: str):
     grad_step = 0
     accum_loss = 0.0
     accum_count = 0
+    best_eval_score = 0.0
+    consecutive_collapse = 0
 
     for global_step in range(config.total_steps * config.grad_accum):
         task = curriculum.current_task()
@@ -324,6 +326,16 @@ def train(config: TrainConfig, start_task: str | None, device: str):
                 accum_loss = 0.0
                 accum_count = 0
 
+                # Early stopping: collapse detection
+                if invalid_rate >= 0.9:
+                    consecutive_collapse += 1
+                    print(f"[COLLAPSE] invalid_rate={invalid_rate:.2f} — consecutive={consecutive_collapse}/5")
+                    if consecutive_collapse >= 5:
+                        print(f"[EARLY STOP] Collapse detected at step {grad_step} — stopping training")
+                        break
+                else:
+                    consecutive_collapse = 0
+
             # ── Eval & curriculum advancement ──────────────────────────────────
             if grad_step % config.eval_interval == 0:
                 print(f"\n[EVAL] step={grad_step} task={curriculum.current_task()}")
@@ -366,6 +378,16 @@ def train(config: TrainConfig, start_task: str | None, device: str):
                     "eval/db_hallucination":    result.mean_db_hallucination,
                     "eval/db_wasted_query":     result.mean_db_wasted_query,
                 })
+
+                # Best checkpoint tracking
+                if result.mean_final_score > best_eval_score:
+                    best_eval_score = result.mean_final_score
+                    save_checkpoint(model, tokenizer, grad_step, config, tag="best")
+                    best_ckpt_dir = Path(config.ckpt_dir) / "best"
+                    (best_ckpt_dir / "best_score.txt").write_text(
+                        f"score={best_eval_score:.4f} step={grad_step}\n"
+                    )
+                    print(f"[CKPT best] New best: score={best_eval_score:.4f} at step={grad_step}")
 
                 # Curriculum advancement
                 advanced = curriculum.report_eval(

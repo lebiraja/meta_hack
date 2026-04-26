@@ -82,6 +82,7 @@ def run_one_episode(
             print(f"  [ERROR] Generation failed ep={task} step={step_idx} role={active_role}: {type(e).__name__}: {e}")
 
         # ── Parse action ───────────────────────────────────────────────────────
+        _is_fallback = False
         action, parse_err = parse_action(completion, active_role)
 
         if action is None:
@@ -93,6 +94,7 @@ def run_one_episode(
             else:
                 action = get_fallback_action(active_role)
                 print(f"  [FALLBACK] task={task} step={step_idx} role={active_role} reason='{parse_err}'")
+                _is_fallback = True
 
         # ── Step environment ───────────────────────────────────────────────────
         try:
@@ -124,6 +126,11 @@ def run_one_episode(
             prompt_ids=prompt_ids,
             completion_ids=completion_ids,
         ))
+
+        # Penalize FALLBACK steps so the model isn't rewarded for garbled output
+        if _is_fallback:
+            episode.steps[-1].reward_value = config.invalid_penalty
+            print(f"  [FALLBACK-PENALIZED] reward overridden to {config.invalid_penalty}")
 
         obs = result.observation
         step_idx += 1

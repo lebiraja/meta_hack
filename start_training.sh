@@ -21,7 +21,8 @@ set -euo pipefail
 # ── Config — edit these ───────────────────────────────────────────────────────
 POLICY_MODEL="${TRAIN_MODEL:-unsloth/Qwen3-8B}"
 JUDGE_MODEL="${LOCAL_JUDGE_MODEL:-unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit}"
-HF_REPO="${HF_REPO:-lebiraja/customer-support-grpo}"
+HF_REPO="${HF_REPO:-lebiraja/customer-support-grpo-v5}"
+HF_REPO_GGUF="${HF_REPO_GGUF:-lebiraja/customer-support-grpo-v5-gguf}"
 HF_TOKEN="${HF_TOKEN:-}"
 ENV_URL="${ENV_URL:-http://localhost:7860}"
 JUDGE_PORT="${JUDGE_PORT:-8002}"
@@ -144,8 +145,7 @@ if [ "$SKIP_GRPO" = "0" ]; then
     JUDGE_MODEL="$JUDGE_MODEL_NAME" \
     JUDGE_MODE="full" \
     python -m train.run_train \
-        --no_wandb \
-        --total_steps "${TOTAL_STEPS:-3500}" \
+        --total_steps "${TOTAL_STEPS:-300}" \
         --ckpt_dir "$CKPT_DIR" \
         2>&1 | tee "$LOG_DIR/train.log"
 
@@ -155,11 +155,16 @@ else
 fi
 
 # ── Step 6: Find best checkpoint ─────────────────────────────────────────────
-info "Step 6/8 — Finding final checkpoint..."
-if [ -d "$CKPT_DIR/final" ]; then
+info "Step 6/8 — Finding best checkpoint..."
+if [ -f "$CKPT_DIR/best/best_score.txt" ]; then
+    BEST_CKPT="$CKPT_DIR/best"
+    info "  Using best checkpoint: $(cat "$CKPT_DIR/best/best_score.txt")"
+elif [ -d "$CKPT_DIR/final" ]; then
     BEST_CKPT="$CKPT_DIR/final"
+    warn "  No best/ found — falling back to final checkpoint"
 else
     BEST_CKPT=$(ls -dt "$CKPT_DIR"/step_* 2>/dev/null | head -1)
+    warn "  No best/ or final/ — using most recent step checkpoint: $BEST_CKPT"
 fi
 
 if [ -z "$BEST_CKPT" ]; then
@@ -191,6 +196,23 @@ else
     warn "  To push manually: python -m train.merge_lora --ckpt $BEST_CKPT --out $MERGED_DIR --push --repo YOUR_REPO --token YOUR_TOKEN"
 fi
 
+# ── Step 8.5: GGUF Q4 quantization + push to separate HF repo ─────────────────
+GGUF_EXPORT="${GGUF_EXPORT:-1}"
+if [ "$GGUF_EXPORT" = "1" ] && [ -n "$HF_TOKEN" ] && [ -n "$HF_REPO_GGUF" ]; then
+    info "Step 8.5/8 — Exporting GGUF Q4_K_M and pushing to $HF_REPO_GGUF ..."
+    python -m train.export_gguf \
+        --model "$MERGED_DIR" \
+        --out   "$MERGED_DIR/gguf/model-q4_k_m.gguf" \
+        --quant q4_k_m \
+        --push \
+        --repo  "$HF_REPO_GGUF" \
+        --token "$HF_TOKEN" \
+        2>&1 | tee "$LOG_DIR/gguf.log"
+    info "  GGUF pushed to https://huggingface.co/$HF_REPO_GGUF ✓"
+else
+    warn "Step 8.5/8 — GGUF export skipped (set GGUF_EXPORT=1, HF_TOKEN and HF_REPO_GGUF to enable)"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════════════════"
@@ -198,7 +220,8 @@ info "Training pipeline complete!"
 echo ""
 echo "  Checkpoint : $BEST_CKPT"
 echo "  Merged     : $MERGED_DIR"
-[ -n "$HF_REPO" ] && echo "  HF Hub     : https://huggingface.co/$HF_REPO"
+[ -n "$HF_REPO" ] && echo "  HF Hub (16-bit) : https://huggingface.co/$HF_REPO"
+[ -n "$HF_REPO_GGUF" ] && echo "  HF Hub (GGUF)   : https://huggingface.co/$HF_REPO_GGUF"
 echo ""
 echo "  To serve the trained model for inference:"
 echo "    INFERENCE_MODEL=$MERGED_DIR python serve_inference.py"
@@ -208,4 +231,8 @@ echo "    $LOG_DIR/judge.log"
 echo "    $LOG_DIR/sft.log"
 echo "    $LOG_DIR/train.log"
 echo "    $LOG_DIR/merge.log"
+echo "    $LOG_DIR/gguf.log"
+echo ""
+echo "  Run GGUF model locally:"
+echo "    ollama run hf.co/$HF_REPO_GGUF"
 echo "═══════════════════════════════════════════════════════════"
